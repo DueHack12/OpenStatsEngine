@@ -1,0 +1,11 @@
+Jersey|RushingNum|RushingYards|RushingLong|ReceivingNum|ReceivingYards|ReceivingLong|PassingComp|PassingAtt|PassingYards|PassingTD|PassingLong|PassingInt|OffensiveFumbles|OffensiveFumblesLost|Tackles|Assists|TotalTackles|TacklesForLoss|Sacks|SacksYardsLost|QBHurries|INTs|INTYards|PassesDefensed|BlockedPunts|BlockedFG|FumbleRecoveries|FumbleRecoveryYards|CausedFumbles|PuntReturnNum|PuntReturnYards|PuntReturnLong|PuntReturnFairCatches|KickoffReturnNum|KickoffReturnYards|KickoffReturnLong|TotalReturnYards|PuntNum|PuntYards|PuntLong|PuntInside20|KickoffNum|KickoffYards|KickoffLong|KickoffTouchbacks|RushingTDNum|ReceivingTDNum|FumbleReturnedTDNum|IntReturnedTDNum|PuntReturnedTDNum|KickoffReturnedTDNum|TotalTDNum|PATKickingMade|PATKickingAtt|PATKickingPoints|PATRushingNum|PATReceivingNum|TotalConversionPoints|FGMade|FGAttempted|FGLong|Safeties
+11|6|31|15||||12|20|205|3|44|1||||||||||||||||||||||||||||||||||||||||||||||||||
+2|14|96|28|||||||||||||||||||||||||||||||||||||||||||1||||||||||||||||
+1||||5|120|44|||||||||||||||||||||||||||||||||||||||||2|||||2||||||||||
+1||||3|38|19||||||||||||||||||||||||||||||||||||||||||||||||||||||||
+28||||||||||||||||||||||||||||||||||||||4|152|41|2|5|300|62|||||||||3|3|||||1|2|32|
+7|||||||||||||||4|9|13|2|1|7||||||||||||||||||||||||||||||||||||||||||
+9|||||||8|19|97||21|2||||||||||||||||||||||||||||||||||||||||||||||||||
+55|||||||||||||||6|3|9|3|2|14||||||||||||||||||||||||||||||||||||||||||
+4||||||||||||||||||||||1|22|2||||||||||||||||||||||||||||||||||||||
+Total|||||||||||||||10||23|||||||||||||||||||||||||||||||||||||||||||||

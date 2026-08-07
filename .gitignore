@@ -1,0 +1,19 @@
+# Live season data — never commit; contains real rosters and game logs
+/data/
+/data-test/
+_backups/
+
+# Real HUDL / MaxPreps exports contain real students' names and stats.
+# Anchored to the repo root so the scrubbed fixtures in test/fixtures/ are kept.
+# (macOS git matches ignore patterns case-insensitively, hence the leading slash.)
+/HUDL*.txt
+/HUDL*.html
+/HUDL SEASON FILES/
+/MAXPREPS*.pdf
+
+# local tooling config
+.claude/
+
+node_modules/
+.DS_Store
+*.tmp

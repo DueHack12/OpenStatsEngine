@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#11141c">
+<title>OpenStatsEngine</title>
+<link rel="stylesheet" href="/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
+</head>
+<body>
+
+<header id="topbar">
+  <div class="brand">OSE</div>
+  <nav id="tabs">
+    <button class="tab active" data-tab="live">Live</button>
+    <button class="tab" data-tab="stats">Stats</button>
+    <button class="tab" data-tab="setup">Setup</button>
+    <button class="tab" data-tab="teams">Teams</button>
+    <button class="tab" data-tab="export">Export</button>
+    <button class="tab" data-tab="vmix">vMix</button>
+  </nav>
+  <div id="conn" class="conn" title="Connection status">●</div>
+</header>
+
+<!-- ============================ LIVE ============================ -->
+<section id="view-live" class="view active">
+
+  <div id="scoreboard">
+    <div class="sb-team" id="sb-away">
+      <div class="sb-abbr"></div><div class="sb-score">0</div>
+    </div>
+    <div class="sb-mid">
+      <div class="sb-clock" id="sb-clock">--:--</div>
+      <div class="sb-period" id="sb-period">—</div>
+      <div class="sb-situation" id="sb-situation"></div>
+      <div class="sb-aux hidden" id="sb-aux">
+        <span class="sb-aux-lbl" id="sb-aux-lbl">Play Clock</span>
+        <span class="sb-aux-val" id="sb-aux-val">40</span>
+      </div>
+    </div>
+    <div class="sb-team" id="sb-home">
+      <div class="sb-abbr"></div><div class="sb-score">0</div>
+    </div>
+  </div>
+
+  <div id="clockbar">
+    <button id="btn-clock" class="ctl wide">▶ Start</button>
+    <button class="ctl" data-clockadj="-60">−1:00</button>
+    <button class="ctl" data-clockadj="-10">−10s</button>
+    <button class="ctl" data-clockadj="10">+10s</button>
+    <button class="ctl" data-clockset>Set</button>
+    <button class="ctl" data-period="next">Period ▸</button>
+    <button id="btn-undo" class="ctl danger">↶ Undo</button>
+  </div>
+
+  <!-- football play clock / basketball shot clock -->
+  <div id="auxbar" class="hidden">
+    <span class="db-lbl" id="aux-title">Play Clock</span>
+    <span class="db-lbl hidden" id="aux-src" style="color:var(--good)"></span>
+    <button id="aux-toggle" class="ctl">▶ Start</button>
+    <span id="aux-presets"></span>
+    <label class="inline auxopt"><input type="checkbox" id="aux-auto"> Auto-reset</label>
+    <label class="inline auxopt"><input type="checkbox" id="aux-on" checked> Show</label>
+  </div>
+
+  <!-- baseball: half-inning, count, outs and bases (entered by hand when the
+       scoreboard doesn't send them) -->
+  <div id="diamondbar" class="hidden">
+    <div class="db-group">
+      <span class="db-lbl">Inning</span>
+      <div class="db-row">
+        <button class="ctl" data-half="top">▲ TOP</button>
+        <button class="ctl" data-half="bottom">▼ BOT</button>
+      </div>
+    </div>
+    <div class="db-group">
+      <span class="db-lbl">Count</span>
+      <div class="db-row">
+        <button class="ctl" data-count="balls">B <b id="cnt-balls">0</b></button>
+        <button class="ctl" data-count="strikes">S <b id="cnt-strikes">0</b></button>
+        <button class="ctl" data-count="outs">O <b id="cnt-outs">0</b></button>
+        <button class="ctl" data-count="reset">Clear</button>
+      </div>
+    </div>
+    <div class="db-group">
+      <span class="db-lbl">Runners</span>
+      <div class="diamond">
+        <button class="base b2" data-base="second">2B</button>
+        <button class="base b3" data-base="third">3B</button>
+        <button class="base b1" data-base="first">1B</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="teamswitch">
+    <button class="teambtn" data-side="away"><span class="tb-label">AWAY</span><span class="tb-name"></span></button>
+    <button class="teambtn" data-side="home"><span class="tb-label">HOME</span><span class="tb-name"></span></button>
+  </div>
+
+  <div id="palette"></div>
+
+  <div id="recent">
+    <div class="recent-head">
+      <span>Recent entries</span>
+      <span id="recent-count"></span>
+    </div>
+    <ul id="recent-list"></ul>
+  </div>
+
+  <div id="nogame" class="empty hidden">
+    <p>No active game.</p>
+    <button class="primary" data-goto="setup">Set up a game →</button>
+  </div>
+</section>
+
+<!-- ============================ STATS ============================ -->
+<section id="view-stats" class="view">
+  <div class="statsbar">
+    <button class="chip active" data-statsview="team">Team</button>
+    <button class="chip" data-statsview="away">Away Players</button>
+    <button class="chip" data-statsview="home">Home Players</button>
+    <button class="chip" data-statsview="leaders">Leaders</button>
+    <button class="chip" data-statsview="scoring">Scoring</button>
+    <button class="chip" data-statsview="pbp">Play-by-Play</button>
+  </div>
+  <div id="statsbody"></div>
+</section>
+
+<!-- ============================ SETUP ============================ -->
+<section id="view-setup" class="view">
+  <div class="card">
+    <h2>New Game</h2>
+    <div class="grid2">
+      <label>Sport<select id="ng-sport"></select></label>
+      <label>Date<input id="ng-date" type="date"></label>
+      <label>Away Team<select id="ng-away"></select></label>
+      <label>Home Team<select id="ng-home"></select></label>
+      <label>Level<select id="ng-level">
+        <option>Varsity</option><option>JV</option><option>Freshman</option><option>Middle School</option></select></label>
+      <label>Venue<input id="ng-venue" placeholder="Stadium / gym"></label>
+      <label>Operator<input id="ng-operator" placeholder="Your name"></label>
+      <label>Period Length (min)<input id="ng-plen" type="number" step="0.5" placeholder="sport default"></label>
+    </div>
+    <button class="primary" id="ng-create">Create &amp; Make Active</button>
+    <p class="hint">Rosters come from the Teams tab. Both teams need a roster for the chosen sport before kickoff.</p>
+  </div>
+
+  <div class="card">
+    <h2>Games</h2>
+    <div id="gamelist"></div>
+  </div>
+
+  <div class="card">
+    <h2>Scorebot / Clock Feed</h2>
+    <p class="hint">Optional. Pulls period, game clock and possession from a Genius Sports Scorebot (or any HTTP/WebSocket JSON feed) so time-of-possession and scoring droughts track automatically. Leave disabled to run the clock by hand.</p>
+    <div class="grid2">
+      <label class="inline"><input type="checkbox" id="sb-enabled"> Enabled</label>
+      <label>Poll interval (ms)<input id="sb-poll" type="number" value="1000"></label>
+      <label class="wide2">Feed URL<input id="sb-url" placeholder="https://host/scorebot/{game}  or  wss://host/feed"></label>
+      <label>API Key<input id="sb-key" type="password" placeholder="optional"></label>
+      <label>Game Code<input id="sb-game" placeholder="replaces {game} in the URL"></label>
+      <label class="wide2">Field Map (JSON, optional)
+        <textarea id="sb-map" rows="3" placeholder='{"clock":"data.gameClock","period":"data.period"}'></textarea></label>
+    </div>
+
+    <h3>Paste a raw message</h3>
+    <p class="hint">Paste one raw JSON message from the Scorebot and hit Parse. It shows what OpenStatsEngine reads from it and suggests the field map — no network call needed, so you can work this out at your desk.</p>
+    <label class="wide2"><textarea id="sb-raw" rows="5" placeholder='{"period":3,"gameClock":"7:22","clockRunning":true,"homeScore":14,"awayScore":7}'></textarea></label>
+    <div class="row">
+      <button id="sb-parse" class="primary">Parse Sample</button>
+      <button id="sb-apply-map">Use Suggested Map</button>
+    </div>
+
+    <h3>Field sources</h3>
+    <p class="hint">Choose where each value comes from. Set a field to <b>Manual</b> and the feed will never touch it — use that for anything your scoreboard doesn't send, like the half-inning or the bases.</p>
+    <div id="sb-sources" class="srcgrid"></div>
+
+    <div class="row">
+      <button id="sb-save" class="primary">Save Settings</button>
+      <button id="sb-test">Test Live Feed</button>
+      <button id="sb-startstop">Start</button>
+    </div>
+    <pre id="sb-out" class="out"></pre>
+  </div>
+</section>
+
+<!-- ============================ TEAMS ============================ -->
+<section id="view-teams" class="view">
+  <div class="card">
+    <h2>Add / Edit Team</h2>
+    <div class="grid2">
+      <label>Name<input id="tm-name" placeholder="Newtown High School"></label>
+      <label>Short Name<input id="tm-short" placeholder="Newtown"></label>
+      <label>Abbrev<input id="tm-abbr" placeholder="NHS" maxlength="5"></label>
+      <label>Mascot<input id="tm-mascot" placeholder="Nighthawks"></label>
+      <label>Primary Color<input id="tm-color" type="color" value="#1e40af"></label>
+      <label>Secondary Color<input id="tm-color2" type="color" value="#ffffff"></label>
+    </div>
+    <button class="primary" id="tm-save">Save Team</button>
+
+    <div class="importbox">
+      <h3>Import all teams from a Google Sheet</h3>
+      <p class="hint">Pulls every school from the <b>Validation</b> tab and team colours from the <b>Pics</b> tab (rows marked "TD Color"). Safe to re-run — teams merge by name, so rosters and logged games are untouched. The sheet must be shared as "Anyone with the link".</p>
+      <label class="wide2"><input id="tm-sheet" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
+      <div class="row">
+        <button id="tm-sheet-preview">Preview</button>
+        <button id="tm-sheet-import" class="primary">Import All Teams</button>
+      </div>
+      <pre id="tm-sheet-out" class="out"></pre>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Roster</h2>
+    <div class="grid2">
+      <label>Team<select id="rs-team"></select></label>
+      <label>Sport<select id="rs-sport"></select></label>
+    </div>
+    <div class="row">
+      <button id="rs-load">Load Roster</button>
+      <button id="rs-addrow">+ Add Player</button>
+      <button id="rs-save" class="primary">Save Roster</button>
+      <button id="rs-csv">Download CSV</button>
+    </div>
+    <div class="importbox">
+      <h3>Import</h3>
+      <label class="wide2">From URL (CIAC roster page, or any page with a roster table)
+        <input id="rs-url" placeholder="https://ciac.fpsports.org/DashboardTeamRoster.aspx?SeasonRoster=1"></label>
+      <div class="row">
+        <button id="rs-url-preview">Preview from URL</button>
+        <button id="rs-url-import">Import from URL</button>
+      </div>
+      <label class="wide2">Or drop a file / paste text — HUDL per-game export, saved HUDL season page, MaxPreps CSV, or any spreadsheet. The format is detected for you.
+        <textarea id="rs-paste" rows="4" placeholder="Number,Name,Position,Grade&#10;12,John Smith,QB,11"></textarea></label>
+      <div class="row">
+        <input type="file" id="rs-file" accept=".csv,.tsv,.txt,.html,.htm,.xml">
+        <span id="rs-detect" class="hint" style="margin:0"></span>
+      </div>
+      <div class="row">
+        <button id="rs-paste-import">Import as Roster</button>
+        <button id="rs-stats-preview">Preview Stats</button>
+        <button id="rs-stats-import">Import as Stats</button>
+        <label class="inline"><input type="checkbox" id="rs-replace"> Replace instead of merge</label>
+      </div>
+      <pre id="rs-out" class="out"></pre>
+    </div>
+    <div id="rostertable"></div>
+  </div>
+
+  <div class="card">
+    <h2>Season History</h2>
+    <p class="hint">Every game logged against this team, kept for the whole season. Pull up what they did to you in September before you play them again in November.</p>
+    <div class="row">
+      <button id="hist-load">Load History</button>
+      <button id="hist-csv">Download Season CSV</button>
+    </div>
+    <div id="histbody"></div>
+  </div>
+</section>
+
+<!-- ============================ EXPORT ============================ -->
+<section id="view-export" class="view">
+  <div class="card">
+    <h2>This Game</h2>
+    <div id="export-links" class="linkgrid"></div>
+    <div class="row">
+      <button id="ex-commit" class="primary">Mark Final &amp; Commit to Season</button>
+    </div>
+    <p class="hint">Committing rolls this game's numbers into each team's season totals. You can keep editing afterwards — just commit again to refresh.</p>
+  </div>
+  <div class="card">
+    <h2>Season</h2>
+    <div class="grid2">
+      <label>Team<select id="ex-team"></select></label>
+      <label>Sport<select id="ex-sport"></select></label>
+      <label>Season<input id="ex-season"></label>
+    </div>
+    <div class="row"><button id="ex-season-go">Download Season CSV</button></div>
+  </div>
+</section>
+
+<!-- ============================ VMIX ============================ -->
+<section id="view-vmix" class="view">
+  <div class="card">
+    <h2>vMix Data Sources</h2>
+    <p class="hint">In vMix: <b>Settings → Data Sources → Add → XML</b>, paste a URL below, then bind the columns to your GT title fields. Each feed returns repeating <code>&lt;Row&gt;</code> elements. The <code>/vmix/live/</code> URLs always follow whichever game is active, so you set them up once for the season.</p>
+    <div id="vmix-links"></div>
+  </div>
+  <div class="card">
+    <h2>XML files on disk</h2>
+    <p class="hint">The same XML is mirrored to disk if you prefer a file-based data source. No SMB needed if vMix runs on this machine.</p>
+    <pre id="vmix-path" class="out"></pre>
+  </div>
+</section>
+
+<!-- ============================ ENTRY SHEET ============================ -->
+<div id="sheet" class="hidden">
+  <div class="sheet-inner">
+    <div class="sheet-head">
+      <div>
+        <span id="sheet-title"></span>
+        <span id="sheet-team" class="sheet-team"></span>
+      </div>
+      <button id="sheet-close" class="ctl">✕</button>
+    </div>
+    <div id="sheet-fields"></div>
+    <div class="sheet-foot">
+      <button id="sheet-save" class="primary big">Save Entry</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<script src="/app.js" type="module"></script>
+</body>
+</html>

@@ -3,9 +3,9 @@
 > ### ⚠️ Heavily AI-generated code
 >
 > **Essentially all of this repository was written by Claude (Anthropic's AI),**
-> working from a spec and iterating against real files and a live browser. A human
+> working from a spec and iterating against real files and a live browser. I
 > directed the work, supplied the requirements and sample exports, and reviewed the
-> output — but did not hand-write the implementation.
+> output, but I did not hand-write the implementation.
 >
 > What that means for you:
 >
@@ -21,7 +21,7 @@
 > - Treat it as a solid starting point you own and can read, not as battle-tested
 >   broadcast software.
 >
-> Reviews, bug reports and corrections are very welcome.
+> Reviews, bug reports and corrections are very welcome. The first game I'll be able to test it on will be in late September.
 
 ---
 

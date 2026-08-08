@@ -464,6 +464,8 @@ export default {
       p.rating = passerRating(p);
       p.all_purpose = p.rush_yds + p.rec_yds + p.kr_yds + p.pr_yds;
       p.total_td = p.rush_td + p.rec_td + p.pass_td + p.def_td + p.ret_td;
+      // touchdowns this player personally scored — a QB's throws are not his TDs
+      p.scored_td = p.rush_td + p.rec_td + p.def_td + p.ret_td;
     }
     for (const side of ['home', 'away']) {
       const t = acc.teams[side];

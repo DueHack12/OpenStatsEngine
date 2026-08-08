@@ -165,6 +165,10 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // friendly URLs for the two front-ends
+  if (req.method === 'GET' && (pathname === '/announcer' || pathname === '/booth')) {
+    if (serveStatic(req, res, '/announcer.html')) return;
+  }
   if (req.method === 'GET' && serveStatic(req, res, pathname)) return;
   res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not found');
 });
@@ -220,6 +224,8 @@ server.listen(PORT, HOST, () => {
   for (const v of ['scoreboard', 'teamstats', 'leaders', 'players', 'scoring', 'plays']) {
     console.log(`    ${base}/vmix/live/${v}.xml`);
   }
+  console.log(`\n  Stats entry   : ${base}/`);
+  console.log(`  Announcer view: ${base}/announcer`);
   console.log(`\n  Open the Network URL on any phone or tablet on this Wi-Fi.`);
   console.log(`  Press Ctrl+C to stop.\n${line}\n`);
 

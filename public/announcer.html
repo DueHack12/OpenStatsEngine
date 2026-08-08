@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OpenStatsEngine — Announcer</title>
+<link rel="stylesheet" href="/announcer.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎙️</text></svg>">
+</head>
+<body>
+
+<!-- big-play popups stack here -->
+<div id="popups"></div>
+
+<header id="board">
+  <div class="bteam" id="bteam-away">
+    <div class="bname"></div>
+    <div class="bscore">0</div>
+    <div class="brec"></div>
+  </div>
+
+  <div class="bmid">
+    <div class="bclock" id="bclock">--:--</div>
+    <div class="bperiod" id="bperiod"></div>
+    <div class="bsit" id="bsit"></div>
+    <div class="baux" id="baux"><span id="baux-lbl"></span><b id="baux-val"></b></div>
+  </div>
+
+  <div class="bteam" id="bteam-home">
+    <div class="bname"></div>
+    <div class="bscore">0</div>
+    <div class="brec"></div>
+  </div>
+</header>
+
+<div id="searchwrap">
+  <input id="search" type="search" autocomplete="off" spellcheck="false"
+         placeholder="Type anything — a player, a number, “rushing”, “third down”, “time of possession”…">
+  <button id="clear" title="Clear (Esc)">✕</button>
+  <div id="chips"></div>
+</div>
+
+<div id="results" class="hidden"></div>
+
+<main id="main">
+  <section class="col">
+    <h2>Storylines</h2>
+    <div id="storylines" class="cards"></div>
+    <h2>Watch For</h2>
+    <div id="watch" class="cards"></div>
+    <h2>Milestones</h2>
+    <div id="milestones" class="cards"></div>
+  </section>
+
+  <section class="col">
+    <h2>Leaders</h2>
+    <div id="leaders"></div>
+  </section>
+
+  <section class="col">
+    <h2>Team Comparison</h2>
+    <div id="teamstats"></div>
+  </section>
+
+  <section class="col">
+    <h2>Scoring</h2>
+    <div id="scoring"></div>
+    <h2>Recent Plays</h2>
+    <div id="plays"></div>
+  </section>
+</main>
+
+<footer id="foot">
+  <span id="conn">● connecting…</span>
+  <span id="gamelabel"></span>
+  <span class="spacer"></span>
+  <span class="keyhint"><kbd>/</kbd> search · <kbd>Esc</kbd> clear · <kbd>P</kbd> pause popups · <kbd>F</kbd> full screen</span>
+  <button id="popuptoggle">Popups: on</button>
+</footer>
+
+<div id="nogame" class="empty hidden">No active game. Ask the stats operator to start one.</div>
+
+<script src="/announcer.js" type="module"></script>
+</body>
+</html>

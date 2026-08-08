@@ -9,8 +9,8 @@
 >
 > What that means for you:
 >
-> - **It has not yet run a live game.** The test suite is thorough (284 tests on a
->   fresh clone, 296 with real exports in place), but
+> - **It has not yet run a live game.** The test suite is thorough (316 tests on a
+>   fresh clone, 328 with real exports in place), but
 >   passing tests are not the same as a Friday night with a scoreboard operator.
 > - **Verify the stat rules against your own rulebook.** Scoring conventions were
 >   implemented to NFHS rules as understood at the time — sacks not counting as
@@ -209,6 +209,73 @@ itself when a plate appearance is logged.
 
 **Export** tab → **Mark Final & Commit to Season**. This rolls the game into both
 teams' season totals. You can keep editing and commit again to refresh.
+
+---
+
+## The announcer view
+
+A second, read-only page built for the people on the mic rather than the person
+entering data. Open it on a laptop or tablet in the booth:
+
+```
+http://<server-ip>:8080/announcer
+```
+
+There is a **🎙️ Booth** link in the top bar of the operator console, and the URL
+is listed with a copy button on the **vMix** tab. It updates live over the same
+event stream and can never change a stat.
+
+### Big-play popups
+
+Touchdowns, interceptions, sacks, field goals, home runs, goals, threes, red
+cards and the rest raise a banner across the top with the team, the headline and
+who did it. Two levels: gold for scores and turnovers, blue for everything else.
+They stack up to three and clear themselves — 14 seconds for a score, 9 for the
+rest — or click the ✕.
+
+Opening the page mid-game does **not** replay everything that already happened;
+only plays that land after you open it pop. Press **P** or use the footer button
+to mute them entirely if the crew finds them distracting.
+
+Plays are credited to the team that **made** them, not the team the entry was
+logged against — a sack and a pick-six show the defence's badge, which is what
+you would say out loud.
+
+### Key stats at a glance
+
+Four columns, no scrolling on a normal laptop:
+
+- **Storylines** — scoring droughts, unanswered runs, time-of-possession gaps,
+  third-down extremes, turnover counts. The context that makes a broadcast sound
+  informed, computed rather than remembered.
+- **Watch For** — who is close to a milestone, e.g. *"S. Calder needs 8 for 100
+  rushing yards"*. Yardage chases are listed first because they make better air.
+- **Milestones** — 100-yard games, 200/300 passing, hat tricks, double-figure
+  tackles, and so on, the moment they land.
+- **Leaders**, **Team Comparison**, **Scoring** and **Recent Plays**.
+
+In Team Comparison the better number is tinted green — and for turnovers,
+penalties and the like *fewer* counts as better. Composite values such as
+`5-4-0` are never tinted, because there is no honest way to say which side won
+them.
+
+### Type to find any stat
+
+The search box is focused on load and takes plain language. It searches players,
+jersey numbers, teams, every team-stat row, every leader board and the
+situational numbers at once:
+
+| Type | You get |
+|---|---|
+| `riverton` or `11` | that player's full line, split by category |
+| `third down` | both teams' third-down conversions |
+| `rushing` | team rushing plus the rushing leader board |
+| `possession` | time of possession, both teams |
+| `prep` | every player on that team with a stat |
+
+Press **/** from anywhere to jump into the box, **Esc** to clear it, and the
+arrow keys to move through results. Quick chips under the box cover the usual
+suspects for the sport in play, and **F** goes full screen for a booth monitor.
 
 ---
 
@@ -496,7 +563,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 284 tests on a fresh clone (296 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 316 tests on a fresh clone (328 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation and field-source gating, baseball bases/count, per-sport
 scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

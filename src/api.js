@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import { deriveGame } from './engine.js';
+import { announcerView } from './announcer.js';
 import { getSport, sportManifest, listSports } from './sports/index.js';
 import { clockFromEvents, clockNow } from './clock.js';
 import { XML_VIEWS, writeXmlFiles } from './vmix.js';
@@ -233,6 +234,13 @@ export function registerRoutes(route, ctx) {
 
   /** The full derived state — this is what the entry UI polls/refreshes on. */
   route('GET', '/api/games/:id/state', ({ params }) => deriveGame(store, params.id));
+
+  /** Everything the announcer page needs in one call: state plus the derived
+   *  storylines, milestones and notable plays. */
+  route('GET', '/api/games/:id/announcer', ({ params }) => {
+    const g = deriveGame(store, params.id);
+    return { ...g, announcer: announcerView(store, params.id, g) };
+  });
 
   route('GET', '/api/games/:id/events', ({ params, query }) => {
     const all = store.readEvents(params.id);

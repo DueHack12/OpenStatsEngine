@@ -1243,6 +1243,15 @@ function renderVmix() {
     try { await navigator.clipboard.writeText(b.dataset.copy); toast('Copied', 'ok'); }
     catch { toast('Copy failed — select the URL manually', 'err'); }
   });
+  wrap.insertAdjacentHTML('afterbegin',
+    `<div class="vrow"><span class="lbl">Announcer</span><code>${esc(base)}/announcer</code>` +
+    `<button data-copy="${esc(base)}/announcer">Copy</button>` +
+    `<a href="/announcer" target="_blank" rel="noopener"><button>Open</button></a></div>` +
+    `<div class="hint" style="margin:-2px 0 12px 8px">Read-only booth page: big-play popups, key stats, and type-to-find any number.</div>`);
+  $$('[data-copy]', wrap).forEach((b2) => b2.onclick = async () => {
+    try { await navigator.clipboard.writeText(b2.dataset.copy); toast('Copied', 'ok'); }
+    catch { toast('Copy failed — select the URL manually', 'err'); }
+  });
   $('#vmix-path').textContent =
     'XML files are also written to the data/vmix folder next to the server.\n' +
     'data/vmix/_live/  always contains the active game.\n' +

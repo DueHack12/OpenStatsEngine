@@ -532,7 +532,35 @@ export function registerRoutes(route, ctx) {
   route('POST', '/api/scorebot/test', async ({ body }) => {
     const cfg = { ...store.config.scorebot, ...(body || {}) };
     if (!cfg.url) bad('No scorebot URL configured');
-    if (/^wss?:/i.test(cfg.url)) bad('Test only supports HTTP(S) URLs. For WebSocket feeds, start the client and watch the status.');
+
+    // MQTT feeds (Sportzcast ScoreConnect III) are sampled by subscribing for a
+    // moment. Use topic "#" to discover what a broker is publishing.
+    if (/^mqtts?:/i.test(cfg.url)) {
+      const { sampleMqtt } = await import('./integrations/mqtt.js');
+      const { normalizeFeed } = await import('./integrations/scorebot.js');
+      const r = await sampleMqtt({
+        url: cfg.gameCode ? cfg.url.replace('{game}', encodeURIComponent(cfg.gameCode)) : cfg.url,
+        topic: cfg.topic, username: cfg.mqttUser,
+        password: cfg.mqttPassword || cfg.apiKey || undefined,
+        ms: 4000
+      });
+      if (r.error) bad(r.error);
+      if (!r.messages.length) {
+        bad(r.connected
+          ? `Connected, but nothing was published in 4 seconds. Check the topic — try "#" to see everything the broker is sending.`
+          : 'Could not connect to the MQTT broker.');
+      }
+      const first = r.messages.find((m) => { try { JSON.parse(m.payload); return true; } catch { return false; } });
+      const json = first ? JSON.parse(first.payload) : null;
+      return {
+        status: 200, ok: true, transport: 'mqtt',
+        topics: r.topics,
+        raw: json ?? r.messages[0].payload.slice(0, 2000),
+        normalized: json ? normalizeFeed(json, cfg.fieldMap || {}) : null
+      };
+    }
+
+    if (/^wss?:/i.test(cfg.url)) bad('Test only supports HTTP(S) and MQTT URLs. For WebSocket feeds, start the client and watch the status.');
     const headers = { Accept: 'application/json' };
     if (cfg.apiKey) { headers.Authorization = `Bearer ${cfg.apiKey}`; headers['x-api-key'] = cfg.apiKey; }
     const url = cfg.gameCode ? cfg.url.replace('{game}', encodeURIComponent(cfg.gameCode)) : cfg.url;

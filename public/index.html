@@ -157,11 +157,11 @@
 
   <div class="card">
     <h2>Scorebot / Clock Feed</h2>
-    <p class="hint">Optional. Pulls period, game clock and possession from a Genius Sports Scorebot (or any HTTP/WebSocket JSON feed) so time-of-possession and scoring droughts track automatically. Leave disabled to run the clock by hand.</p>
+    <p class="hint">Optional. Pulls period, clock, score, possession and down &amp; distance from a scoreboard feed. Works with <b>Sportzcast ScoreConnect III</b> over MQTT — use <code>mqtt://127.0.0.1:1883/bot/0/json</code> when ScoreConnect runs on this machine (the topic is the URL path; try <code>/#</code> with Test to see everything a broker publishes). HTTP polling and WebSocket JSON feeds also work. Leave disabled to run the clock by hand.</p>
     <div class="grid2">
       <label class="inline"><input type="checkbox" id="sb-enabled"> Enabled</label>
       <label>Poll interval (ms)<input id="sb-poll" type="number" value="1000"></label>
-      <label class="wide2">Feed URL<input id="sb-url" placeholder="https://host/scorebot/{game}  or  wss://host/feed"></label>
+      <label class="wide2">Feed URL<input id="sb-url" placeholder="mqtt://127.0.0.1:1883/bot/0/json   ·   https://host/api/{game}   ·   wss://host/feed"></label>
       <label>API Key<input id="sb-key" type="password" placeholder="optional"></label>
       <label>Game Code<input id="sb-game" placeholder="replaces {game} in the URL"></label>
       <label class="wide2">Field Map (JSON, optional)

@@ -1240,8 +1240,11 @@ async function testScorebot() {
   $('#sb-out').textContent = 'Testing…';
   try {
     const r = await api('/api/scorebot/test', { method: 'POST', body: JSON.stringify(scorebotBody()) });
+    const head = r.transport === 'mqtt'
+      ? `MQTT connected\nTopics seen: ${(r.topics || []).map((t) => `${t.topic} (${t.count})`).join(', ') || 'none'}`
+      : `HTTP ${r.status}`;
     $('#sb-out').textContent =
-      `HTTP ${r.status}\n\nNORMALIZED (what OSE will use):\n${JSON.stringify(r.normalized, null, 2)}\n\nRAW RESPONSE:\n` +
+      `${head}\n\nNORMALIZED (what OSE will use):\n${JSON.stringify(r.normalized, null, 2)}\n\nRAW MESSAGE:\n` +
       (typeof r.raw === 'string' ? r.raw : JSON.stringify(r.raw, null, 2));
   } catch (e) { $('#sb-out').textContent = 'Error: ' + e.message; }
 }

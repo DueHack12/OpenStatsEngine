@@ -1,6 +1,7 @@
 import { clockFromEvents, clockNow, auxClockFromEvents, auxNow } from '../clock.js';
 import { getSport } from '../sports/index.js';
 import { parseClock } from '../util.js';
+import { MqttClient } from './mqtt.js';
 
 /**
  * Genius Sports Scorebot (or any other clock/score feed) adapter.
@@ -26,32 +27,44 @@ export const FEED_FIELDS = [
   { key: 'balls', label: 'Balls' },
   { key: 'strikes', label: 'Strikes' },
   { key: 'bases', label: 'Runners on Base' },
-  { key: 'auxClock', label: 'Play / Shot Clock', hint: 'football play clock, basketball shot clock' }
+  { key: 'auxClock', label: 'Play / Shot Clock', hint: 'football play clock, basketball shot clock' },
+  { key: 'down', label: 'Down', hint: 'football' },
+  { key: 'distance', label: 'Distance to Go', hint: 'football' },
+  { key: 'ballOn', label: 'Ball On', hint: 'football yard line' }
 ];
 
 /** Fields most scoreboards do send, versus the ones usually entered by hand. */
 export const DEFAULT_SOURCES = {
   period: 'scorebot', clock: 'scorebot', running: 'scorebot',
   homeScore: 'scorebot', awayScore: 'scorebot', possession: 'scorebot',
-  auxClock: 'scorebot',
+  auxClock: 'scorebot', down: 'scorebot', distance: 'scorebot', ballOn: 'scorebot',
   half: 'manual', outs: 'manual', balls: 'manual', strikes: 'manual', bases: 'manual'
 };
 
 const CANDIDATES = {
-  period: ['period', 'quarter', 'inning', 'currentPeriod', 'periodNumber', 'data.period'],
-  clock: ['clock', 'gameClock', 'displayClock', 'time', 'timeRemaining', 'data.clock'],
-  running: ['running', 'clockRunning', 'isRunning', 'clockState', 'data.running'],
-  homeScore: ['homeScore', 'home.score', 'scores.home', 'homeTeamScore', 'data.homeScore'],
-  awayScore: ['awayScore', 'away.score', 'scores.away', 'awayTeamScore', 'visitorScore', 'data.awayScore'],
+  // Sportzcast ScoreConnect III publishes PascalCase keys ("Quarter", "Clock",
+  // "GuestScore"), so those names sit alongside the generic ones.
+  period: ['period', 'Quarter', 'quarter', 'inning', 'Inning', 'currentPeriod', 'periodNumber', 'data.period'],
+  clock: ['clock', 'Clock', 'gameClock', 'displayClock', 'time', 'timeRemaining', 'data.clock'],
+  running: ['running', 'clockRunning', 'ClockStatus', 'isRunning', 'clockState', 'data.running'],
+  homeScore: ['homeScore', 'HomeScore', 'home.score', 'scores.home', 'homeTeamScore', 'data.homeScore'],
+  awayScore: ['awayScore', 'GuestScore', 'VisitorScore', 'away.score', 'scores.away',
+    'awayTeamScore', 'visitorScore', 'data.awayScore'],
   possession: ['possession', 'possessionTeam', 'ballPossession', 'data.possession'],
+  // Sportzcast flags possession per side with a marker character rather than a name
+  homePossession: ['HomePossession', 'homePossession'],
+  awayPossession: ['GuestPossession', 'VisitorPossession', 'guestPossession', 'awayPossession'],
+  down: ['down', 'Down', 'data.down'],
+  distance: ['distance', 'ToGo', 'toGo', 'togo', 'yardsToGo', 'data.distance'],
+  ballOn: ['ballOn', 'BallOn', 'yardLine', 'data.ballOn'],
   half: ['half', 'inningHalf', 'topBottom', 'isTop', 'topOfInning', 'data.half'],
   outs: ['outs', 'outCount', 'data.outs'],
   balls: ['balls', 'ballCount', 'data.balls'],
   strikes: ['strikes', 'strikeCount', 'data.strikes'],
   bases: ['bases', 'runners', 'baseRunners', 'onBase', 'data.bases'],
-  auxClock: ['playClock', 'shotClock', 'play_clock', 'shot_clock', 'playClockSeconds',
-    'shotClockSeconds', 'secondaryClock', 'data.playClock', 'data.shotClock'],
-  auxRunning: ['playClockRunning', 'shotClockRunning', 'auxClockRunning',
+  auxClock: ['playClock', 'PlayClock', 'shotClock', 'ShotClock', 'play_clock', 'shot_clock',
+    'playClockSeconds', 'shotClockSeconds', 'secondaryClock', 'data.playClock', 'data.shotClock'],
+  auxRunning: ['playClockRunning', 'PlayClockStatus', 'shotClockRunning', 'auxClockRunning',
     'data.playClockRunning', 'data.shotClockRunning']
 };
 
@@ -64,7 +77,10 @@ function dig(obj, path) {
 function pick(obj, paths) {
   for (const p of paths) {
     const v = dig(obj, p);
-    if (v !== undefined && v !== null && v !== '') return v;
+    if (v === undefined || v === null) continue;
+    // Scoreboards pad unused fields with spaces; " " means absent, not a value.
+    if (typeof v === 'string' && v.trim() === '') continue;
+    return v;
   }
   return undefined;
 }
@@ -121,7 +137,8 @@ export function discoverPaths(raw) {
 
 export function normalizeFeed(raw, fieldMap = {}) {
   const map = {};
-  for (const { key } of [...FEED_FIELDS, { key: 'auxRunning' }]) {
+  for (const { key } of [...FEED_FIELDS, { key: 'auxRunning' },
+    { key: 'homePossession' }, { key: 'awayPossession' }]) {
     const custom = fieldMap[key];
     map[key] = custom
       ? (Array.isArray(custom) ? custom : [custom, ...CANDIDATES[key]])
@@ -135,7 +152,10 @@ export function normalizeFeed(raw, fieldMap = {}) {
     running: runningRaw === undefined ? undefined : truthy(runningRaw),
     homeScore: toInt(pick(raw, map.homeScore)),
     awayScore: toInt(pick(raw, map.awayScore)),
-    possession: normPoss(pick(raw, map.possession)),
+    possession: normPoss(pick(raw, map.possession)) ?? sidePossession(raw, map),
+    down: toInt(pick(raw, map.down)),
+    distance: toInt(pick(raw, map.distance)),
+    ballOn: toInt(pick(raw, map.ballOn)),
     half: normHalf(pick(raw, map.half)),
     outs: toInt(pick(raw, map.outs)),
     balls: toInt(pick(raw, map.balls)),
@@ -163,6 +183,17 @@ export function auxMs(v) {
     return n > 200 ? Math.round(n) : Math.round(n * 1000);
   }
   return parseClock(s);
+}
+
+/**
+ * Some scoreboards mark possession by putting a character next to a side
+ * ("<" or "*") rather than naming the team, so a non-blank value wins.
+ */
+function sidePossession(raw, map) {
+  const flag = (v) => v !== undefined && v !== null && String(v).trim() !== '';
+  if (flag(pick(raw, map.homePossession))) return 'home';
+  if (flag(pick(raw, map.awayPossession))) return 'away';
+  return undefined;
 }
 
 function toInt(v) { if (v == null || v === '') return undefined; const n = parseInt(v, 10); return isFinite(n) ? n : undefined; }
@@ -226,7 +257,8 @@ export class ScorebotClient {
     const cfg = this.cfg;
     if (!cfg.enabled || !cfg.url) { this.status.mode = 'off'; return this.status; }
     this.gameId = gameId;
-    if (/^wss?:\/\//i.test(cfg.url)) this._startWS(cfg);
+    if (/^mqtts?:\/\//i.test(cfg.url)) this._startMqtt(cfg);
+    else if (/^wss?:\/\//i.test(cfg.url)) this._startWS(cfg);
     else this._startPoll(cfg);
     return this.status;
   }
@@ -234,6 +266,7 @@ export class ScorebotClient {
   stop() {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
     if (this.ws) { try { this.ws.close(); } catch { /* already closing */ } this.ws = null; }
+    if (this.mqtt) { try { this.mqtt.end(); } catch { /* already closing */ } this.mqtt = null; }
     this.status.connected = false;
     this.status.mode = 'off';
   }
@@ -264,6 +297,35 @@ export class ScorebotClient {
     this.timer = setInterval(tick, Math.max(250, cfg.pollMs || 1000));
   }
 
+  /**
+   * Sportzcast ScoreConnect III runs a local MQTT broker and publishes the
+   * scoreboard as JSON. The topic is the URL path, e.g.
+   *   mqtt://127.0.0.1:1883/bot/0/json
+   */
+  _startMqtt(cfg) {
+    this.status.mode = 'mqtt';
+    const url = cfg.gameCode ? cfg.url.replace('{game}', encodeURIComponent(cfg.gameCode)) : cfg.url;
+    this.mqtt = new MqttClient({
+      url,
+      topic: cfg.topic,
+      username: cfg.mqttUser,
+      password: cfg.mqttPassword || cfg.apiKey || undefined,
+      onStatus: (st) => {
+        this.status.connected = !!st.connected;
+        if (st.topic) this.status.topic = st.topic;
+        if (st.error) this.status.lastError = `${st.error} @ ${new Date().toLocaleTimeString()}`;
+      },
+      onMessage: (topic, payload) => {
+        try { this._handle(JSON.parse(payload)); }
+        catch {
+          // Non-JSON topics (ScoreConnect also publishes a raw `sbdata` string)
+          // are ignored rather than treated as an error.
+          this.status.lastRawText = payload.slice(0, 200);
+        }
+      }
+    }).connect();
+  }
+
   _startWS(cfg) {
     this.status.mode = 'ws';
     try {
@@ -290,6 +352,30 @@ export class ScorebotClient {
     }
   }
 
+  /**
+   * Many scoreboards publish a clock value but no run/stop flag — Sportzcast
+   * sends ClockStatus as a blank character. A clock that is changing is
+   * running; one that has held the same value for a few messages is stopped.
+   * Only fills in what the feed left undefined.
+   */
+  _inferRunning(feed) {
+    const track = (key, msKey, stateKey) => {
+      const ms = feed[msKey];
+      if (ms == null) return;
+      const prev = this[stateKey];
+      if (prev && prev.ms === ms) {
+        prev.still++;
+        // a few identical readings in a row is a genuinely stopped clock
+        if (feed[key] === undefined && prev.still >= 3) feed[key] = false;
+      } else {
+        if (feed[key] === undefined && prev) feed[key] = true;
+        this[stateKey] = { ms, still: 0 };
+      }
+    };
+    track('running', 'clockMs', '_clockTrack');
+    track('auxRunning', 'auxClockMs', '_auxTrack');
+  }
+
   _handle(raw) {
     this.status.connected = true;
     this.status.messages++;
@@ -297,6 +383,7 @@ export class ScorebotClient {
     this.status.lastRaw = raw;
     if (!this.gameId) return;
     const feed = normalizeFeed(raw, this.cfg.fieldMap || {});
+    if (this.cfg.inferRunning !== false) this._inferRunning(feed);
     this.status.lastNormalized = feed;
     const written = applyFeed(this.store, this.gameId, feed, { ...this.cfg, sources: this.sources });
     if (written.length) this.onChange(this.gameId, written);
@@ -383,7 +470,7 @@ export function applyFeed(store, gameId, feed, cfg = {}) {
   // Situation fields (half / outs / count / bases) travel together as one
   // situation_set so the log stays readable.
   const sit = {};
-  for (const f of ['half', 'outs', 'balls', 'strikes', 'bases']) {
+  for (const f of ['half', 'outs', 'balls', 'strikes', 'bases', 'down', 'distance', 'ballOn']) {
     if (on(f) && feed[f] !== undefined) sit[f] = feed[f];
   }
   if (Object.keys(sit).length) {

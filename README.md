@@ -9,15 +9,15 @@
 >
 > What that means for you:
 >
-> - **It has not yet run a live game.** The test suite is thorough (360 tests on a
->   fresh clone, 372 with real exports in place), but
+> - **It has not yet run a live game.** The test suite is thorough (391 tests on a
+>   fresh clone, 403 with real exports in place), but
 >   passing tests are not the same as a Friday night with a scoreboard operator.
 > - **Verify the stat rules against your own rulebook.** Scoring conventions were
 >   implemented to NFHS rules as understood at the time — sacks not counting as
 >   pass attempts, 40/25 play clock, 35-second shot clock, NCAA passer rating.
 >   Confirm anything you put on air.
-> - **The Genius Sports Scorebot integration is unverified against a live feed.**
->   It was built against synthetic payloads with a configurable field map.
+> - **The Sportzcast ScoreConnect III / MQTT feed has been verified against a
+>   live emulator**, but not yet against a real scoreboard in a stadium.
 > - Treat it as a solid starting point you own and can read, not as battle-tested
 >   broadcast software.
 >
@@ -388,8 +388,48 @@ linescore.
 
 ## Scorebot / clock feed (optional)
 
-**Setup → Scorebot** connects a Genius Sports Scorebot — or any HTTP or WebSocket
-JSON feed — so period, clock, score and possession update themselves.
+**Setup → Scorebot** connects a scoreboard feed so period, clock, score,
+possession and down & distance update themselves.
+
+### Sportzcast ScoreConnect III (tested)
+
+ScoreConnect III runs a local MQTT broker and publishes the whole scoreboard as
+JSON. With ScoreConnect running on the same machine, this is the entire setup:
+
+| Setting | Value |
+|---|---|
+| Feed URL | `mqtt://127.0.0.1:1883/bot/0/json` |
+| Enabled | ✓ |
+
+The URL path is the **topic**. If you are not sure what a broker is publishing,
+put `mqtt://127.0.0.1:1883/#` in the URL and press **Test Live Feed** — it
+subscribes for a few seconds and lists every topic it saw, with the first JSON
+message normalised. ScoreConnect publishes two: `bot/0/json` (what you want) and
+`bot/0/sbdata` (the raw scoreboard string, ignored).
+
+If ScoreConnect runs on a different machine, swap in its IP. `mqtts://` and
+username/password are supported for brokers that need them.
+
+Its field names are mapped out of the box — `Quarter`, `Clock`, `HomeScore`,
+`GuestScore` (note: *Guest*, not Away), `Down`, `ToGo`, `BallOn`, `PlayClock`,
+and possession from the `HomePossession` / `GuestPossession` marker characters.
+So a football game arrives with the clock, the score, the play clock **and down
+& distance** already filled in.
+
+Two quirks worth knowing, both handled:
+
+- **Blank fields.** ScoreConnect pads unused fields with a space. `" "` is
+  treated as absent rather than as a value — otherwise `ClockStatus: " "` would
+  read as "clock stopped" and freeze the game clock.
+- **No run/stop flag.** It publishes a clock value but never says whether it is
+  running. OpenStatsEngine infers it: a clock that is changing is running, one
+  that holds the same value for three messages is stopped. Turn this off with
+  `"inferRunning": false` in the scorebot config if your feed does report it.
+
+### Other feeds
+
+HTTP polling and plain-JSON WebSocket feeds work the same way — put an
+`https://` or `wss://` URL in the same box.
 
 Everything works without it; the manual clock is always available.
 
@@ -431,7 +471,7 @@ them on the diamond strip instead.
 
 | Field | Default |
 |---|---|
-| Period / Inning, Game Clock, Clock Running, Home/Away Score, Possession, Play / Shot Clock | Scorebot |
+| Period / Inning, Game Clock, Clock Running, Home/Away Score, Possession, Play / Shot Clock, Down, Distance, Ball On | Scorebot |
 | Top / Bottom, Outs, Balls, Strikes, Runners on Base | Manual |
 
 A manual entry always wins over an earlier feed value, so you can correct a field
@@ -451,10 +491,10 @@ warning element in a GT title if you want to see it on the operator's preview.
   rather than a per-second firehose.
 - Sub-second drift between the feed and the local clock is ignored
   (`toleranceMs`, default 1200).
-- **Test Live Feed** does the same thing as Parse Sample but fetches from the URL.
-- **You will need the endpoint URL and credentials from Genius Sports.** The
-  parser was built against synthetic payloads, so treat the field map as the
-  thing to check first if numbers look wrong — Parse Sample is built for that.
+- **Test Live Feed** does the same thing as Parse Sample but connects to the URL
+  — subscribing briefly for MQTT, fetching once for HTTP.
+- The MQTT path was built and verified against a live ScoreConnect III emulator.
+  Other feeds are still worth checking with Parse Sample first.
 
 ---
 
@@ -596,7 +636,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 360 tests on a fresh clone (372 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 391 tests on a fresh clone (403 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation and field-source gating, baseball bases/count, per-sport
 scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

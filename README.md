@@ -9,8 +9,8 @@
 >
 > What that means for you:
 >
-> - **It has not yet run a live game.** The test suite is thorough (409 tests on a
->   fresh clone, 421 with real exports in place), but
+> - **It has not yet run a live game.** The test suite is thorough (422 tests on a
+>   fresh clone, 434 with real exports in place), but
 >   passing tests are not the same as a Friday night with a scoreboard operator.
 > - **Verify the stat rules against your own rulebook.** Scoring conventions were
 >   implemented to NFHS rules as understood at the time — sacks not counting as
@@ -443,6 +443,17 @@ Two quirks worth knowing, both handled:
   The Scorebot status panel names any value it could not read, so you will see
   what to map. Turn the fallback off entirely with `"inferRunning": false`.
 
+### Turning it off
+
+The **Enabled** switch acts immediately — untick it and the feed disconnects,
+no separate Save step. There is also a **Disconnect** button next to the status
+light, which shows `● Connected — MQTT · bot/0/json` or `● Disconnected` at a
+glance.
+
+Disconnecting is **persistent**: it stays off through activating a game, creating
+a game, saving other settings and restarting the server, until you press Connect
+again. Your feed URL and other settings are kept, so reconnecting is one click.
+
 ### Other feeds
 
 HTTP polling and plain-JSON WebSocket feeds work the same way — put an
@@ -653,7 +664,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 409 tests on a fresh clone (421 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 422 tests on a fresh clone (434 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation and field-source gating, baseball bases/count, per-sport
 scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

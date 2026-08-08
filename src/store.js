@@ -50,8 +50,13 @@ export class Store {
   saveConfig() { this._writeJSON(this.configPath, this.config); }
 
   updateConfig(patch) {
+    // Capture the nested block first: the top-level spread below replaces
+    // `scorebot` wholesale, so merging afterwards would merge it with itself and
+    // silently drop every key the patch didn't mention — disconnecting the feed
+    // would have erased its URL.
+    const prevScorebot = this.config.scorebot;
     this.config = { ...this.config, ...patch };
-    if (patch.scorebot) this.config.scorebot = { ...this.config.scorebot, ...patch.scorebot };
+    if (patch.scorebot) this.config.scorebot = { ...prevScorebot, ...patch.scorebot };
     this.saveConfig();
     return this.config;
   }

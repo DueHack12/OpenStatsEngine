@@ -199,7 +199,33 @@ const ROSTER_AWAY = `No,Player,Pos,Yr
     ok(`${sport}: PDF renders`, p2.slice(0, 5).toString() === '%PDF-', `${p2.length} bytes`);
   }
 
-  console.log('\n== errors are sane ==');
+  console.log('\n== scorebot connect / disconnect ==');
+// No real feed here; what matters is that the enabled flag is persisted, since a
+// stop that does not survive silently reconnects on the next ordinary action.
+await j('/api/config', { method: 'POST', body: JSON.stringify({ scorebot: { enabled: true, url: 'mqtt://127.0.0.1:1/none' } }) });
+let sbState = await j('/api/scorebot/status');
+check('enabled persisted', sbState.config.enabled, true);
+
+await j('/api/scorebot/stop', { method: 'POST', body: '{}' });
+sbState = await j('/api/scorebot/status');
+check('disconnect stops it', sbState.mode, 'off');
+check('disconnect also persists enabled:false', sbState.config.enabled, false);
+
+// the actions that used to silently bring it back
+await j(`/api/games/${G}/activate`, { method: 'POST', body: '{}' });
+sbState = await j('/api/scorebot/status');
+check('activating a game does not reconnect', sbState.mode, 'off');
+await j('/api/config', { method: 'POST', body: JSON.stringify({ operator: 'Someone' }) });
+sbState = await j('/api/scorebot/status');
+check('saving unrelated settings does not reconnect', sbState.mode, 'off');
+check('and it is still disabled', (await j('/api/scorebot/status')).config.enabled, false);
+
+try { await j('/api/scorebot/start', { method: 'POST', body: '{}' }); }
+catch { /* no broker listening on that port; the persistence is the point */ }
+check('connect flips enabled back on', (await j('/api/scorebot/status')).config.enabled, true);
+await j('/api/scorebot/stop', { method: 'POST', body: '{}' });
+
+console.log('\n== errors are sane ==');
   try { await j(`/api/games/${G}/events`, { method: 'POST', body: JSON.stringify({ type: 'stat', team: 'home', action: 'not_a_real_action' }) }); ok('rejects unknown action', false); }
   catch (e) { ok('rejects unknown action', /Unknown action/.test(e.message), e.message.split(':').pop().trim()); }
   try { await j('/api/games/nope/state'); ok('404s unknown game', false); }

@@ -45,6 +45,17 @@ eq('keeps only the newest N', left.length, 5);
 ok('oldest pruned first', !left.includes('2026-01-01-00-00-00'), left[0]);
 
 ok('dataSize reports something', s.dataSize() > 0, s.dataSize()+' bytes');
+
+console.log('\n== partial config updates must not drop sibling keys ==');
+s.updateConfig({ scorebot: { enabled: true, url: 'mqtt://host:1883/t', apiKey: 'k', pollMs: 500 } });
+s.updateConfig({ scorebot: { enabled: false } });          // what Disconnect sends
+eq('enabled updated', s.config.scorebot.enabled, false);
+eq('url survives a partial update', s.config.scorebot.url, 'mqtt://host:1883/t');
+eq('apiKey survives', s.config.scorebot.apiKey, 'k');
+eq('pollMs survives', s.config.scorebot.pollMs, 500);
+s.updateConfig({ operator: 'Someone' });
+eq('an unrelated patch leaves scorebot alone', s.config.scorebot.url, 'mqtt://host:1883/t');
+eq('and applies its own change', s.config.operator, 'Someone');
 fs.rmSync(root,{recursive:true,force:true});
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail?1:0);

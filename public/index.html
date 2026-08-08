@@ -180,10 +180,13 @@
     <p class="hint">Choose where each value comes from. Set a field to <b>Manual</b> and the feed will never touch it — use that for anything your scoreboard doesn't send, like the half-inning or the bases.</p>
     <div id="sb-sources" class="srcgrid"></div>
 
-    <div class="row">
-      <button id="sb-save" class="primary">Save Settings</button>
+    <div class="row sbrow">
+      <span id="sb-state" class="sbstate off">● Disconnected</span>
+      <span class="spacer"></span>
       <button id="sb-test">Test Live Feed</button>
-      <button id="sb-startstop">Start</button>
+      <button id="sb-save">Save Settings</button>
+      <button id="sb-startstop" class="primary">Connect</button>
+      <button id="sb-disconnect" class="danger hidden">Disconnect</button>
     </div>
     <pre id="sb-out" class="out"></pre>
   </div>

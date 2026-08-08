@@ -125,6 +125,8 @@ function bindChrome() {
   $('#rs-paste-import').onclick = () => importRoster({ csv: $('#rs-paste').value });
   $('#rs-stats-import').onclick = () => importStats(false);
   $('#sb-save').onclick = saveScorebot;
+  $('#sb-enabled').onchange = (e) => (e.target.checked ? connectScorebot() : disconnectScorebot());
+  $('#sb-disconnect').onclick = disconnectScorebot;
   $('#sb-test').onclick = testScorebot;
   $('#sb-startstop').onclick = toggleScorebot;
   $('#ex-commit').onclick = commitGame;
@@ -1207,18 +1209,37 @@ function applySuggestedMap() {
 
 function paintScorebotStatus(st) {
   if (!st) return;
-  $('#sb-startstop').textContent = st.mode === 'off' ? 'Start' : 'Stop';
+  const off = st.mode === 'off';
+  $('#sb-startstop').textContent = off ? 'Connect' : 'Disconnect';
+  $('#sb-startstop').classList.toggle('primary', off);
+  $('#sb-disconnect').classList.toggle('hidden', off);
+  if (S.cfg?.scorebot) $('#sb-enabled').checked = !!S.cfg.scorebot.enabled && !off;
+
+  const dot = $('#sb-state');
+  dot.textContent = off ? '● Disconnected'
+    : (st.connected ? `● Connected — ${st.mode.toUpperCase()}${st.topic ? ' · ' + st.topic : ''}` : '● Connecting…');
+  dot.className = 'sbstate ' + (off ? 'off' : (st.connected ? 'on' : 'wait'));
+
   $('#sb-out').textContent =
     `mode: ${st.mode} · connected: ${st.connected} · messages: ${st.messages}` +
     (st.lastMessage ? `\nlast message: ${st.lastMessage}` : '') +
     (st.lastError ? `\nlast error: ${st.lastError}` : '') +
-    (st.lastNormalized ? `\nnormalized: ${JSON.stringify(st.lastNormalized)}` : '');
+    (st.hint ? `\n\n${st.hint}` : '') +
+    (st.lastNormalized ? `\n\nnormalized: ${JSON.stringify(st.lastNormalized)}` : '');
 }
 
 function scorebotBody() {
   let fieldMap = null;
   const t = $('#sb-map').value.trim();
-  if (t) { try { fieldMap = JSON.parse(t); } catch { throw new Error('Field Map is not valid JSON'); } }
+  if (t) {
+    try { fieldMap = JSON.parse(t); }
+    catch {
+      // Warn, but still save everything else. Refusing the whole save meant a
+      // half-typed field map could stop you turning the feed off.
+      toast('Field Map is not valid JSON — saved everything else, map left unchanged', 'err');
+      fieldMap = null;
+    }
+  }
   return {
     enabled: $('#sb-enabled').checked, url: $('#sb-url').value.trim(),
     apiKey: $('#sb-key').value, gameCode: $('#sb-game').value.trim(),
@@ -1249,13 +1270,32 @@ async function testScorebot() {
   } catch (e) { $('#sb-out').textContent = 'Error: ' + e.message; }
 }
 
-async function toggleScorebot() {
+async function connectScorebot() {
   try {
-    const st = $('#sb-startstop').textContent === 'Start'
-      ? await api('/api/scorebot/start', { method: 'POST', body: '{}' })
-      : await api('/api/scorebot/stop', { method: 'POST', body: '{}' });
+    // save the form first so Connect uses what is on screen
+    await api('/api/config', { method: 'POST', body: JSON.stringify({ scorebot: scorebotBody() }) });
+    const st = await api('/api/scorebot/start', { method: 'POST', body: '{}' });
+    S.cfg = await api('/api/config');
     paintScorebotStatus(st);
+    toast('Scorebot connected', 'ok');
+  } catch (e) {
+    $('#sb-enabled').checked = false;
+    toast(e.message, 'err');
+  }
+}
+
+async function disconnectScorebot() {
+  try {
+    const st = await api('/api/scorebot/stop', { method: 'POST', body: '{}' });
+    S.cfg = await api('/api/config');
+    $('#sb-enabled').checked = false;
+    paintScorebotStatus(st);
+    toast('Scorebot disconnected — it will stay off until you connect again', 'ok');
   } catch (e) { toast(e.message, 'err'); }
+}
+
+async function toggleScorebot() {
+  return S.cfg?.scorebotStatus?.mode === 'off' ? connectScorebot() : disconnectScorebot();
 }
 
 /* ---------------------------- export / vmix ---------------------------- */

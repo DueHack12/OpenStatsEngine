@@ -487,11 +487,25 @@ export function registerRoutes(route, ctx) {
 
   /* ---------------- scorebot ---------------- */
   route('GET', '/api/scorebot/status', () => ({ ...scorebot.status, config: store.config.scorebot }));
+
+  /**
+   * Connect / disconnect. Both persist `enabled`, because a stop that does not
+   * survive is worse than no stop at all: without this, disconnecting and then
+   * doing something ordinary — activating a game, restarting the server — would
+   * silently reconnect the feed.
+   */
   route('POST', '/api/scorebot/start', () => {
-    const id = activeId() || bad('No active game');
+    const id = activeId() || bad('No active game to attach the feed to');
+    if (!store.config.scorebot?.url) bad('No feed URL configured');
+    store.updateConfig({ scorebot: { enabled: true } });
     return scorebot.start(id);
   });
-  route('POST', '/api/scorebot/stop', () => { scorebot.stop(); return scorebot.status; });
+
+  route('POST', '/api/scorebot/stop', () => {
+    store.updateConfig({ scorebot: { enabled: false } });
+    scorebot.stop();
+    return { ...scorebot.status, config: store.config.scorebot };
+  });
 
   /**
    * Parse a raw JSON sample without any network call. Paste one Scorebot

@@ -5,7 +5,7 @@ const opp = (s) => (s === 'home' ? 'away' : 'home');
 export default {
   id: 'soccer',
   name: 'Soccer',
-  periods: { count: 2, lengthMs: 40 * 60000, otLengthMs: 10 * 60000, label: 'Half' },
+  periods: { count: 2, lengthMs: 40 * 60000, otLengthMs: 10 * 60000, label: 'Half', maxOvertimes: 3 },
   clockCountsDown: false, // soccer clocks up
   hasPossession: true,
 

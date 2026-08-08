@@ -6,7 +6,7 @@ const P1 = (label) => [{ name: 'player', type: 'player', label, primary: true }]
 export default {
   id: 'basketball',
   name: 'Basketball',
-  periods: { count: 4, lengthMs: 8 * 60000, otLengthMs: 4 * 60000, label: 'Quarter' },
+  periods: { count: 4, lengthMs: 8 * 60000, otLengthMs: 4 * 60000, label: 'Quarter', maxOvertimes: 3 },
   clockCountsDown: true,
   hasPossession: true,
 

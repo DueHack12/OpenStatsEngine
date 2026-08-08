@@ -99,14 +99,21 @@ export function clockView(st, now = Date.now()) {
   };
 }
 
+/** "3rd", "OT", "2OT" — or for baseball just "10th", since extra innings are
+ *  ordinary play rather than overtime. */
 export function periodLabel(st, n) {
+  if (st.label === 'Inning') return ordinal(n);
   if (n > st.periodCount) {
     const ot = n - st.periodCount;
-    return st.periodCount >= 4 && st.label === 'Quarter' ? (ot === 1 ? 'OT' : `${ot}OT`) : (ot === 1 ? 'OT' : `${ot}OT`);
+    return ot === 1 ? 'OT' : `${ot}OT`;
   }
-  const ord = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th'][n - 1] || `${n}th`;
-  if (st.label === 'Inning') return `${ord}`;
-  return ord;
+  return ordinal(n);
+}
+
+function ordinal(n) {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  return n + (['th', 'st', 'nd', 'rd'][n % 10] || 'th');
 }
 
 /* ------------------------------------------------------------------ *

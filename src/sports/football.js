@@ -19,7 +19,7 @@ const PENALTIES = ['False Start', 'Holding', 'Offside', 'Pass Interference', 'Fa
 export default {
   id: 'football',
   name: 'Football',
-  periods: { count: 4, lengthMs: 12 * 60000, otLengthMs: 0, label: 'Quarter' },
+  periods: { count: 4, lengthMs: 12 * 60000, otLengthMs: 0, label: 'Quarter', maxOvertimes: 3 },
   clockCountsDown: true,
   hasPossession: true,
   trackDownDistance: true,

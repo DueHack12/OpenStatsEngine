@@ -8,7 +8,7 @@ const PENALTIES = ['Tripping', 'Hooking', 'Slashing', 'Cross-Checking', 'Roughin
 export default {
   id: 'hockey',
   name: 'Ice Hockey',
-  periods: { count: 3, lengthMs: 15 * 60000, otLengthMs: 8 * 60000, label: 'Period' },
+  periods: { count: 3, lengthMs: 15 * 60000, otLengthMs: 8 * 60000, label: 'Period', maxOvertimes: 3 },
   clockCountsDown: true,
   hasPossession: false,
 

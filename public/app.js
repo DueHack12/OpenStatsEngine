@@ -98,8 +98,12 @@ function bindChrome() {
     const ms = m[2] != null ? (parseInt(m[1], 10) * 60 + parseFloat(m[2])) * 1000 : parseInt(m[1], 10) * 60000;
     clockOp('set', { ms });
   };
-  $('[data-period]').onclick = () => clockOp('period', { period: (S.state?.clock.period || 1) + 1 });
+  $$('[data-period]').forEach((b) => b.onclick = () => {
+    const cur = S.state?.clock.period || 1;
+    clockOp('period', { period: cur + (b.dataset.period === 'prev' ? -1 : 1) });
+  });
   $('#btn-undo').onclick = undoLast;
+  $('#btn-redo').onclick = redoLast;
 
   $$('.teambtn').forEach((b) => b.onclick = () => setSide(b.dataset.side));
   $('#sheet-close').onclick = closeSheet;
@@ -229,6 +233,13 @@ function applyState() {
     box.classList.toggle('poss', st.situation?.possession === side);
   }
   $('#sb-period').textContent = `${st.clock.periodLabel} ${S.sport.periods.label}`.toUpperCase();
+  const maxPeriod = S.sport.periods.count + (S.sport.periods.maxOvertimes ?? 3);
+  const prevBtn = $('[data-period="prev"]'), nextBtn = $('[data-period="next"]');
+  if (prevBtn) prevBtn.disabled = st.clock.period <= 1;
+  if (nextBtn) {
+    nextBtn.disabled = st.clock.period >= maxPeriod;
+    nextBtn.title = nextBtn.disabled ? `Capped at ${S.sport.periods.label.toLowerCase()} ${maxPeriod}` : '';
+  }
   $('#btn-clock').textContent = st.clock.running ? '❚❚ Stop' : '▶ Start';
   $('#btn-clock').classList.toggle('on', st.clock.running);
   $('#sb-clock').classList.toggle('running', st.clock.running);
@@ -407,7 +418,26 @@ function renderPalette() {
 function renderRecent() {
   const list = $('#recent-list'); list.innerHTML = '';
   const items = (S.state?.timeline || []).slice(0, 40);
-  $('#recent-count').textContent = `${S.state?.counts.effective ?? 0} entries`;
+  const undone = S.state?.undone || [];
+  $('#recent-count').textContent = `${S.state?.counts.effective ?? 0} entries` +
+    (undone.length ? ` · ${undone.length} undone` : '');
+  $('#btn-redo').disabled = !undone.length;
+
+  // Undone entries stay visible so a specific one can be put back, rather than
+  // only being able to reverse the most recent undo.
+  for (const t of undone.slice(0, 6)) {
+    const li = el('li', 'undone');
+    li.appendChild(el('span', 'rl-time', `${t.periodLabel ?? ''} ${t.clock ?? ''}`));
+    li.appendChild(el('span', 'rl-team', t.team ? S.state.teams[t.team].abbrev : ''));
+    const main = el('div', 'rl-main');
+    main.appendChild(el('div', null, t.label));
+    if (t.text) main.appendChild(el('div', 'rl-detail', t.text));
+    li.appendChild(main);
+    const r = el('button', 'rl-undo redo', '↷ redo');
+    r.onclick = () => redoEvent(t.id);
+    li.appendChild(r);
+    list.appendChild(li);
+  }
   for (const t of items) {
     const li = el('li');
     li.appendChild(el('span', 'rl-time', `${t.periodLabel ?? ''} ${t.clock ?? ''}`));
@@ -430,6 +460,23 @@ async function undoLast() {
   try {
     const r = await api(`/api/games/${encodeURIComponent(S.gameId)}/undo`, { method: 'POST', body: '{}' });
     S.state = r.state; applyState(); toast('Undone');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function redoLast() {
+  if (!S.gameId) return;
+  try {
+    const r = await api(`/api/games/${encodeURIComponent(S.gameId)}/redo`, { method: 'POST', body: '{}' });
+    S.state = r.state; applyState(); toast('Restored', 'ok');
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+async function redoEvent(id) {
+  try {
+    const r = await api(`/api/games/${encodeURIComponent(S.gameId)}/redo`, {
+      method: 'POST', body: JSON.stringify({ eventId: id })
+    });
+    S.state = r.state; applyState(); toast('Restored', 'ok');
   } catch (e) { toast(e.message, 'err'); }
 }
 
@@ -644,6 +691,7 @@ function onKey(e) {
 
   if (e.key === ' ') { e.preventDefault(); clockOp(S.clock.running ? 'stop' : 'start'); }
   else if (e.key === 'u' || e.key === 'z') { e.preventDefault(); undoLast(); }
+  else if (e.key === 'y' || e.key === 'Z') { e.preventDefault(); redoLast(); }
   else if (e.key === 'a') setSide('away');
   else if (e.key === 'h') setSide('home');
   else if (e.key === 'r' && S.aux) { e.preventDefault(); auxOp('aux', { ms: S.aux.fullMs }); }

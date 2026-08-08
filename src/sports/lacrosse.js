@@ -5,7 +5,7 @@ const opp = (s) => (s === 'home' ? 'away' : 'home');
 export default {
   id: 'lacrosse',
   name: 'Lacrosse',
-  periods: { count: 4, lengthMs: 12 * 60000, otLengthMs: 4 * 60000, label: 'Quarter' },
+  periods: { count: 4, lengthMs: 12 * 60000, otLengthMs: 4 * 60000, label: 'Quarter', maxOvertimes: 3 },
   clockCountsDown: true,
   hasPossession: true,
 

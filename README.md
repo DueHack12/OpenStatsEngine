@@ -9,8 +9,8 @@
 >
 > What that means for you:
 >
-> - **It has not yet run a live game.** The test suite is thorough (316 tests on a
->   fresh clone, 328 with real exports in place), but
+> - **It has not yet run a live game.** The test suite is thorough (360 tests on a
+>   fresh clone, 372 with real exports in place), but
 >   passing tests are not the same as a Friday night with a scoreboard operator.
 > - **Verify the stat rules against your own rulebook.** Scoring conventions were
 >   implemented to NFHS rules as understood at the time — sacks not counting as
@@ -156,12 +156,23 @@ picked for that team, so a passing series is receiver + yards + save.
 | `Space` | Start / stop the clock |
 | `A` / `H` | Switch to away / home |
 | `U` or `Z` | Undo the last entry |
+| `Y` or `Shift`+`Z` | Redo the last undo |
 | `R` | Reset the play/shot clock to full |
 | `P` | Start / stop the play clock (football) |
 
-**Getting it wrong is fine.** *Undo* on any line in Recent Entries reverses it. The
-original is never deleted — it is marked undone, so the audit trail stays complete
-and `pbp.csv` shows exactly what was entered and when.
+**Getting it wrong is fine.** *Undo* on any line in Recent Entries reverses it, and
+**Redo** puts it back — either the last undo (the toolbar button, or `Y`) or a
+specific one, since undone entries stay visible at the top of Recent Entries with
+their own *↷ redo* button. Nothing is ever deleted: undo and redo are both
+recorded, so the audit trail stays complete and `pbp.csv` shows exactly what was
+entered, undone, restored and when.
+
+**Periods go both ways.** *◂ Per* steps back if you advanced by mistake, *Per ▸*
+goes forward, and both stop at the limits — you cannot go before the 1st, and
+overtime is capped at **3** for football, basketball, hockey, soccer and lacrosse.
+Baseball is different in kind: extra innings are ordinary play, so they read as
+"8th", "9th", "10th" rather than "OT" and run to 32 before the guard trips. Raise
+`maxOvertimes` in a game's settings if your league needs more.
 
 **Down & distance** (football) advances itself from the yardage you enter and
 flips possession on punts, turnovers and scores. Use **Set Possession** if it
@@ -229,9 +240,18 @@ event stream and can never change a stat.
 
 Touchdowns, interceptions, sacks, field goals, home runs, goals, threes, red
 cards and the rest raise a banner across the top with the team, the headline and
-who did it. Two levels: gold for scores and turnovers, blue for everything else.
-They stack up to three and clear themselves — 14 seconds for a score, 9 for the
-rest — or click the ✕.
+who did it.
+
+**Timeouts and penalties** raise one too, in a quieter green: *"TIMEOUT —
+Fairfield Prep, timeout 2"* (they are counted), *"PENALTY — PREP, False Start,
+5 yards"*. A penalty carrying an automatic first down or 15+ yards is promoted to
+the louder blue because it changes the drive; a declined penalty raises nothing.
+Ordinary basketball fouls never pop — only technicals and flagrants — since they
+are far too frequent to interrupt for.
+
+Three levels: gold for scores and turnovers, blue for other big plays, green for
+timeouts and minor penalties. They stack up to three and clear themselves — 14
+seconds for a score, 9 for a big play, 7 for a note — or click the ✕.
 
 Opening the page mid-game does **not** replay everything that already happened;
 only plays that land after you open it pop. Press **P** or use the footer button
@@ -272,6 +292,19 @@ situational numbers at once:
 | `rushing` | team rushing plus the rushing leader board |
 | `possession` | time of possession, both teams |
 | `prep` | every player on that team with a stat |
+
+### Pinned panel
+
+Every search result has a **📌 pin** button. Pinned items sit in a panel above the
+columns and update live, so the crew can build the exact set they want up all
+night — third down, time of possession, the running back's line — and stop
+searching for them.
+
+Pins are saved per **sport**, not per game, so the panel is already built the next
+week. A pin that no longer resolves (last week's player) shows greyed as *"Not in
+this game yet"* rather than vanishing, and **Clear all** empties the panel.
+Pressing **Enter** pins the highlighted search result without reaching for the
+mouse.
 
 Press **/** from anywhere to jump into the box, **Esc** to clear it, and the
 arrow keys to move through results. Quick chips under the box cover the usual
@@ -563,7 +596,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 316 tests on a fresh clone (328 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 360 tests on a fresh clone (372 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation and field-source gating, baseball bases/count, per-sport
 scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

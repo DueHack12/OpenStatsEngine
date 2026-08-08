@@ -12,6 +12,7 @@ const S = {
   popupsOn: true,
   index: [],
   sel: 0,
+  pins: [],
   clock: { base: 0, at: 0, running: false, down: true },
   aux: null
 };
@@ -28,6 +29,7 @@ init();
 async function init() {
   bindKeys();
   $('#popuptoggle').onclick = togglePopups;
+  $('#pin-clear').onclick = () => { S.pins = []; savePins(); renderPinned(); runSearch(); };
   $('#clear').onclick = () => { $('#search').value = ''; runSearch(); $('#search').focus(); };
   $('#search').addEventListener('input', runSearch);
 
@@ -37,6 +39,7 @@ async function init() {
     S.gameId = cfg.activeGameId;
     const meta = await api(`/api/games/${encodeURIComponent(S.gameId)}`);
     S.sport = await api(`/api/sports/${meta.sport}`);
+    loadPins();
     await refresh();
   } catch (e) {
     $('#nogame').textContent = 'Cannot reach the stats server: ' + e.message;
@@ -194,6 +197,7 @@ function render() {
   renderPlays(g);
 
   buildIndex(g);
+  renderPinned();
   renderChips();
   if ($('#search').value.trim()) runSearch();
   tick();
@@ -290,6 +294,86 @@ function renderPlays(g) {
 
 const fmt = (v) => v == null ? '' : (typeof v === 'number' ? (Number.isInteger(v) ? v : +v.toFixed(1)) : v);
 
+/* ---------------------------- pinned panel ---------------------------- */
+/**
+ * Pins are stored per sport rather than per game, so a booth that always wants
+ * "third down" and "time of possession" up gets them every week. Pins that no
+ * longer resolve — last week's players — are shown greyed for one visit and can
+ * be cleared, rather than vanishing silently.
+ */
+const pinKey = () => `ose.pins.${S.sport?.id || 'x'}`;
+
+function loadPins() {
+  try { S.pins = JSON.parse(localStorage.getItem(pinKey()) || '[]'); }
+  catch { S.pins = []; }
+}
+function savePins() {
+  try { localStorage.setItem(pinKey(), JSON.stringify(S.pins)); } catch { /* private mode */ }
+}
+function isPinned(id) { return S.pins.some((p) => p.id === id); }
+
+function togglePin(id, title) {
+  if (isPinned(id)) S.pins = S.pins.filter((p) => p.id !== id);
+  else S.pins.push({ id, title });
+  savePins();
+  renderPinned();
+  runSearch();
+}
+
+function renderPinned() {
+  const box = $('#pinned'), w = $('#pinned-cards');
+  if (!S.pins.length) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  w.innerHTML = '';
+
+  for (const pin of S.pins) {
+    const item = S.index.find((i) => i.id === pin.id);
+    const card = el('div', 'pcard' + (item ? '' : ' gone'));
+
+    const x = el('button', 'pcard-x', '✕');
+    x.title = 'Unpin';
+    x.onclick = () => togglePin(pin.id);
+    card.appendChild(x);
+
+    if (!item) {
+      // e.g. a player pinned from a previous game, or nothing logged yet
+      card.appendChild(el('div', 'pcard-t', pin.title));
+      card.appendChild(el('div', 'pcard-s', 'Not in this game yet'));
+      w.appendChild(card);
+      continue;
+    }
+
+    card.appendChild(el('div', 'pcard-t', item.title));
+    if (item.sub) card.appendChild(el('div', 'pcard-s', item.sub));
+
+    if (item.lines) {
+      // a player: show the first (primary) category, which is what gets said
+      const l = item.lines[0];
+      card.appendChild(el('div', 'pcard-s', l.label));
+      const row = el('div', 'pcard-v');
+      for (const [lab, v] of l.cells.slice(0, 5)) {
+        const d = el('div');
+        d.appendChild(el('b', null, fmt(v)));
+        d.appendChild(el('span', null, lab));
+        row.appendChild(d);
+      }
+      card.appendChild(row);
+    } else if (item.compare) {
+      const row = el('div', 'pcard-v');
+      for (const side of ['away', 'home']) {
+        const d = el('div');
+        d.appendChild(el('b', null, fmt(item.compare[side])));
+        d.appendChild(el('span', null, item.compare[side + 'Name']));
+        row.appendChild(d);
+      }
+      card.appendChild(row);
+    } else if (item.rows) {
+      for (const r of item.rows.slice(0, 3)) card.appendChild(el('div', 'pcard-l', r));
+    }
+    w.appendChild(card);
+  }
+}
+
 /* ---------------------------- search ---------------------------- */
 /**
  * One flat index of everything askable: players (with every stat line they
@@ -310,6 +394,7 @@ function buildIndex(g) {
     }
     if (!lines.length) continue;
     idx.push({
+      id: `player:${p.side}:${p.playerId}`,
       type: 'player', tag: 'player',
       title: `#${p.number} ${p.name}`,
       sub: `${team.name}${p.pos ? ' · ' + p.pos : ''}${p.year ? ' · ' + p.year : ''}`,
@@ -320,6 +405,7 @@ function buildIndex(g) {
 
   for (const [k, label] of S.sport.teamStatRows) {
     idx.push({
+      id: `team:${k}`,
       type: 'team', tag: 'team stat', title: label,
       keywords: kw(label, k, k.replace(/_/g, ' '), 'team'),
       compare: { away: fmt(g.teams.away[k]), home: fmt(g.teams.home[k]),
@@ -331,6 +417,7 @@ function buildIndex(g) {
     const L = g.leaders[cat.key];
     if (!L || !L.rows.length) continue;
     idx.push({
+      id: `leaders:${cat.key}`,
       type: 'leaders', tag: 'leaders', title: `${L.label} leaders`,
       keywords: kw(L.label, cat.key, 'leader leaders best top most'),
       rows: L.rows.slice(0, 5).map((r) => `${g.teams[r.side].abbrev} #${r.number} ${r.name} — ${r.line}`)
@@ -352,7 +439,7 @@ function buildIndex(g) {
   for (const [title, keywords, compare] of sit) {
     if (compare.away == null && compare.home == null) continue;
     if (already.has(title.toLowerCase())) continue;
-    idx.push({ type: 'team', tag: 'situational', title, keywords, compare });
+    idx.push({ id: `sit:${title}`, type: 'team', tag: 'situational', title, keywords, compare });
   }
 
   S.index = idx;
@@ -392,11 +479,18 @@ function runSearch() {
   }
   S.sel = Math.min(S.sel, hits.length - 1);
   box.innerHTML = hits.map((h, n) => renderResult(h, n === S.sel)).join('');
+  $$('[data-pin]', box).forEach((b) => b.onclick = (e) => {
+    e.stopPropagation();
+    togglePin(b.dataset.pin, b.dataset.pintitle);
+  });
 }
 
 function renderResult(h, sel) {
+  const on = isPinned(h.id);
   let inner = `<div class="res-h"><span class="res-t">${esc(h.title)}</span>` +
-              `<span class="res-tag ${h.type}">${esc(h.tag)}</span></div>`;
+              `<span class="res-tag ${h.type}">${esc(h.tag)}</span>` +
+              `<button class="res-pin ${on ? 'on' : ''}" data-pin="${esc(h.id)}" ` +
+              `data-pintitle="${esc(h.title)}">${on ? '📌 pinned' : '📌 pin'}</button></div>`;
   if (h.sub) inner += `<div class="res-sub">${esc(h.sub)}</div>`;
 
   if (h.lines) {
@@ -445,6 +539,11 @@ function bindKeys() {
     if (inSearch) {
       if (e.key === 'ArrowDown') { e.preventDefault(); S.sel++; runSearch(); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); S.sel = Math.max(0, S.sel - 1); runSearch(); }
+      else if (e.key === 'Enter') {
+        e.preventDefault();
+        const b = $$('#results [data-pin]')[S.sel];
+        if (b) togglePin(b.dataset.pin, b.dataset.pintitle);
+      }
       return;
     }
     if (e.key === 'p' || e.key === 'P') { e.preventDefault(); togglePopups(); }

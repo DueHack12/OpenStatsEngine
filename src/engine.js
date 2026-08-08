@@ -188,6 +188,15 @@ export function deriveGame(store, gameId, { now = Date.now() } = {}) {
     };
   }
 
+  // Undone entries, described the same way as live ones so the operator can
+  // put a specific one back rather than blindly redoing the last action.
+  const undoneSet = new Set(store.undoneIds(gameId));
+  const undone = rawEvents
+    .filter((e) => undoneSet.has(e.id) && e.type === 'stat' && e.action)
+    .map((e) => describe(sport, e, nameOf, clockState))
+    .filter(Boolean)
+    .reverse();
+
   return {
     meta,
     sportId: sport.id,
@@ -218,7 +227,8 @@ export function deriveGame(store, gameId, { now = Date.now() } = {}) {
     leaders: computeLeaders(sport, acc),
     droughts,
     runs: acc.runs,
-    counts: { events: rawEvents.length, effective: events.length },
+    counts: { events: rawEvents.length, effective: events.length, undone: undone.length },
+    undone,
     lastEvent: events.length ? events[events.length - 1] : null
   };
 }

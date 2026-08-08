@@ -279,6 +279,11 @@ export class Store {
     return this.appendEvent(gameId, { type: 'undo', targetId, by });
   }
 
+  /** Cancel an undo. Also append-only, so the log records the whole sequence. */
+  redoEvent(gameId, targetId, by = '') {
+    return this.appendEvent(gameId, { type: 'redo', targetId, by });
+  }
+
   /** Rewrite an event's payload by appending a correction marker. */
   correctEvent(gameId, targetId, data, by = '') {
     return this.appendEvent(gameId, { type: 'correct', targetId, data, by });
@@ -289,19 +294,31 @@ export class Store {
     const raw = this.readEvents(gameId);
     const undone = new Set();
     const corrections = new Map();
+    // Replayed in order, so the last undo/redo for a target is the one that counts.
     for (const e of raw) {
       if (e.type === 'undo' && e.targetId) undone.add(e.targetId);
+      if (e.type === 'redo' && e.targetId) undone.delete(e.targetId);
       if (e.type === 'correct' && e.targetId) {
         corrections.set(e.targetId, { ...(corrections.get(e.targetId) || {}), ...e.data });
       }
     }
     return raw
-      .filter((e) => e.type !== 'undo' && e.type !== 'correct' && !undone.has(e.id))
+      .filter((e) => !['undo', 'redo', 'correct'].includes(e.type) && !undone.has(e.id))
       .map((e) => {
         const c = corrections.get(e.id);
         if (!c) return e;
         return { ...e, ...c, data: { ...(e.data || {}), ...(c.data || {}) }, corrected: true };
       });
+  }
+
+  /** Ids currently undone, oldest first. */
+  undoneIds(gameId) {
+    const undone = new Set();
+    for (const e of this.readEvents(gameId)) {
+      if (e.type === 'undo' && e.targetId) undone.add(e.targetId);
+      if (e.type === 'redo' && e.targetId) undone.delete(e.targetId);
+    }
+    return [...undone];
   }
 
   /** Aggregate a finished game into each team's season totals. */

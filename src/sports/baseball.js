@@ -11,7 +11,7 @@ const fmt3 = (n) => (isFinite(n) ? n.toFixed(3).replace(/^0\./, '.') : '.000');
 export default {
   id: 'baseball',
   name: 'Baseball / Softball',
-  periods: { count: 7, lengthMs: 0, otLengthMs: 0, label: 'Inning' },
+  periods: { count: 7, lengthMs: 0, otLengthMs: 0, label: 'Inning', maxOvertimes: 25 },
   clockCountsDown: false,
   hasClock: false,
   hasPossession: false,

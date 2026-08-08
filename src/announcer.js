@@ -61,6 +61,18 @@ const NOTABLE = {
         return null;
       case 'turnover_downs':
         return mk(BIG, 'TURNOVER ON DOWNS', `${C.us} come up short`);
+      case 'penalty': {
+        if (d.declined) return null;
+        const on = d.player ? ` on ${C.p(d.player)}` : '';
+        const yds = d.yards ? `, ${Math.abs(Number(d.yards))} yards` : '';
+        // A false start every other series is noise; a 15-yarder or an
+        // automatic first down changes the drive and is worth saying.
+        const heavy = d.autoFirst || Math.abs(Number(d.yards) || 0) >= 15;
+        return mk(heavy ? BIG : NOTE, 'PENALTY',
+          `${C.us} — ${d.kind || 'penalty'}${on}${yds}${d.autoFirst ? ', automatic first down' : ''}`);
+      }
+      case 'timeout':
+        return mk(NOTE, 'TIMEOUT', `${C.usName}${C.seq ? ` — timeout ${C.seq}` : ''}`);
       default:
         return turnover;
     }
@@ -77,7 +89,11 @@ const NOTABLE = {
         return null;
       case 'block': return mk(BIG, 'BLOCK', `${C.p(d.player)} rejects it`);
       case 'steal': return mk(BIG, 'STEAL', `${C.p(d.player)} takes it away`);
-      case 'foul': return d.kind === 'Technical' ? mk(BIG, 'TECHNICAL', `${C.p(d.player)}`) : null;
+      case 'foul':
+        if (d.kind === 'Technical') return mk(BIG, 'TECHNICAL', `${C.p(d.player)}`);
+        if (d.kind === 'Flagrant') return mk(BIG, 'FLAGRANT', `${C.p(d.player)}`);
+        return null;   // ordinary fouls are far too frequent to interrupt for
+      case 'timeout': return mk(NOTE, 'TIMEOUT', `${C.usName}${C.seq ? ` — timeout ${C.seq}` : ''}`);
       default: return null;
     }
   },
@@ -88,7 +104,8 @@ const NOTABLE = {
       const s = d.strength && d.strength !== 'EV' ? ` (${d.strength})` : '';
       return mk(HUGE, 'GOAL', `${C.p(d.scorer)}${s}${d.assist1 ? ` from ${C.p(d.assist1)}` : ' unassisted'}`);
     }
-    if (ev.action === 'penalty') return mk(BIG, 'PENALTY', `${C.p(d.player)} — ${d.kind}, ${d.minutes}`);
+    if (ev.action === 'penalty') return mk(BIG, 'PENALTY', `${C.p(d.player)} — ${d.kind}, ${d.minutes} min`);
+    if (ev.action === 'timeout') return mk(NOTE, 'TIMEOUT', `${C.usName}${C.seq ? ` — timeout ${C.seq}` : ''}`);
     return null;
   },
 
@@ -107,7 +124,10 @@ const NOTABLE = {
       const s = d.strength && d.strength !== 'EV' ? ` (${d.strength})` : '';
       return mk(HUGE, 'GOAL', `${C.p(d.scorer)}${s}${d.assist ? ` from ${C.p(d.assist)}` : ''}`);
     }
-    if (ev.action === 'penalty') return mk(BIG, 'PENALTY', `${C.p(d.player)} — ${d.kind}`);
+    if (ev.action === 'penalty') {
+      return mk(BIG, 'PENALTY', `${C.p(d.player)} — ${d.kind}${d.seconds ? `, ${d.seconds}s` : ''}`);
+    }
+    if (ev.action === 'timeout') return mk(NOTE, 'TIMEOUT', `${C.usName}${C.seq ? ` — timeout ${C.seq}` : ''}`);
     return null;
   },
 
@@ -187,12 +207,18 @@ export function announcerView(store, gameId, g) {
   /* ---- notable plays ---- */
   const rule = NOTABLE[sport];
   const notables = [];
+  // how many times each team has done a given thing, for "timeout 2"
+  const seqCount = new Map();
   for (const ev of events) {
     if (ev.type !== 'stat' || !ev.action || !rule) continue;
     const other = ev.team === 'home' ? 'away' : 'home';
+    const countKey = `${ev.team}:${ev.action}`;
+    seqCount.set(countKey, (seqCount.get(countKey) || 0) + 1);
     const C = {
       us: g.teams[ev.team].abbrev,
       them: g.teams[other].abbrev,
+      usName: g.teams[ev.team].shortName || g.teams[ev.team].name,
+      seq: seqCount.get(countKey),
       p: (id) => nameOf(ev.team, id),
       o: (id) => nameOf(other, id)
     };

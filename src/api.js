@@ -282,6 +282,21 @@ export function registerRoutes(route, ctx) {
     return { undone: targetId, state: deriveGame(store, params.id) };
   });
 
+  /** Put back an undone entry. With no eventId, the most recent undo is reversed. */
+  route('POST', '/api/games/:id/redo', ({ params, body }) => {
+    let targetId = body?.eventId;
+    if (!targetId) {
+      const raw = store.readEvents(params.id);
+      const stillUndone = new Set(store.undoneIds(params.id));
+      const last = [...raw].reverse().find((e) => e.type === 'undo' && stillUndone.has(e.targetId));
+      if (!last) bad('Nothing to redo');
+      targetId = last.targetId;
+    }
+    store.redoEvent(params.id, targetId, body?.by || store.config.operator || '');
+    touch(params.id);
+    return { redone: targetId, state: deriveGame(store, params.id) };
+  });
+
   route('POST', '/api/games/:id/correct', ({ params, body }) => {
     if (!body?.eventId) bad('eventId is required');
     store.correctEvent(params.id, body.eventId, body.data || {}, body.by || store.config.operator || '');
@@ -303,7 +318,26 @@ export function registerRoutes(route, ctx) {
     }
     const data = {};
     if (op === 'set') data.ms = Number(body.ms) || 0;
-    if (op === 'period') { data.period = Number(body.period); if (body.ms != null) data.ms = Number(body.ms); }
+    if (op === 'period') {
+      // Periods are correctable in both directions — an operator who advances by
+      // mistake needs to go back — and bounded, so a stray tap cannot run the
+      // game off to the 12th overtime.
+      const sport = getSport(meta.sport);
+      const n = Number(body.period);
+      if (!Number.isInteger(n)) bad('period must be a whole number');
+      const maxOT = meta.settings?.maxOvertimes ?? sport.periods.maxOvertimes ?? 3;
+      const max = sport.periods.count + maxOT;
+      if (n < 1) bad(`Cannot go before the 1st ${sport.periods.label.toLowerCase()}`);
+      if (n > max) {
+        const isInnings = sport.periods.label === 'Inning';
+        bad(isInnings
+          ? `${max} innings is the limit. Raise "maxOvertimes" in the game's settings if you really need more.`
+          : `${sport.name} is capped at ${maxOT} overtime${maxOT === 1 ? '' : 's'} (${sport.periods.label.toLowerCase()} ${max}). ` +
+            `Raise "maxOvertimes" in the game's settings to go further.`);
+      }
+      data.period = n;
+      if (body.ms != null) data.ms = Number(body.ms);
+    }
     if (op === 'aux') { data.ms = Number(body.ms); if (body.running != null) data.running = !!body.running; }
     if (op === 'auxConfig') {
       if (body.enabled != null) data.enabled = !!body.enabled;

@@ -168,6 +168,46 @@ const SPORTZCAST = JSON.stringify({
   eq('three in a row is a stopped clock', step(475000), false);
   eq('and it comes back when the clock moves', step(474000), true);
 
+  console.log('\n== clock status values a real board might send ==');
+  const run = (v) => normalizeFeed({ Clock: '5:00', ClockStatus: v }).running;
+  eq('boolean true', run(true), true);
+  eq('boolean false', run(false), false);
+  eq('"true"', run('true'), true);
+  eq('"1"', run('1'), true);
+  eq('numeric 0', run(0), false);
+  eq('"Y"', run('Y'), true);
+  eq('"N"', run('N'), false);
+  eq('"Running"', run('Running'), true);
+  eq('"Stopped"', run('Stopped'), false);
+  // The important one: never guess "stopped" from something unrecognised, or a
+  // running clock silently freezes and time of possession is wrong all night.
+  eq('unrecognised "R" -> unknown, not stopped', run('R'), undefined);
+  eq('unrecognised "S" -> unknown, not stopped', run('S'), undefined);
+  eq('unrecognised junk -> unknown', run('XYZ'), undefined);
+  eq('blank -> unknown', run(' '), undefined);
+  ok('an unreadable status is reported so it can be mapped',
+    normalizeFeed({ ClockStatus: 'R' })._unreadRunning === 'R');
+
+  console.log('\n== a venue can teach it a marker without a code change ==');
+  eq('runningValues true', normalizeFeed({ ClockStatus: 'R' }, {}, { runningValues: { true: ['R'], false: ['S'] } }).running, true);
+  eq('runningValues false', normalizeFeed({ ClockStatus: 'S' }, {}, { runningValues: { true: ['R'], false: ['S'] } }).running, false);
+
+  console.log('\n== a reported status always beats the inference ==');
+  const c2 = new ScorebotClient({ store: { config: { scorebot: {} } } });
+  let stuckButRunning;
+  for (let i = 0; i < 5; i++) {
+    stuckButRunning = normalizeFeed({ Clock: '5:00', ClockStatus: true });
+    c2._inferRunning(stuckButRunning);
+  }
+  eq('board says running, clock not visibly moving -> still running', stuckButRunning.running, true);
+  const c3 = new ScorebotClient({ store: { config: { scorebot: {} } } });
+  let movingButStopped;
+  for (const clk of ['5:00', '4:59', '4:58']) {
+    movingButStopped = normalizeFeed({ Clock: clk, ClockStatus: false });
+    c3._inferRunning(movingButStopped);
+  }
+  eq('board says stopped, clock moving -> still stopped', movingButStopped.running, false);
+
   console.log(`\n${'='.repeat(52)}\n  ${pass} passed, ${fail} failed\n${'='.repeat(52)}\n`);
   process.exit(fail ? 1 : 0);
 })();

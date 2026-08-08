@@ -9,8 +9,8 @@
 >
 > What that means for you:
 >
-> - **It has not yet run a live game.** The test suite is thorough (391 tests on a
->   fresh clone, 403 with real exports in place), but
+> - **It has not yet run a live game.** The test suite is thorough (409 tests on a
+>   fresh clone, 421 with real exports in place), but
 >   passing tests are not the same as a Friday night with a scoreboard operator.
 > - **Verify the stat rules against your own rulebook.** Scoring conventions were
 >   implemented to NFHS rules as understood at the time — sacks not counting as
@@ -421,10 +421,27 @@ Two quirks worth knowing, both handled:
 - **Blank fields.** ScoreConnect pads unused fields with a space. `" "` is
   treated as absent rather than as a value — otherwise `ClockStatus: " "` would
   read as "clock stopped" and freeze the game clock.
-- **No run/stop flag.** It publishes a clock value but never says whether it is
-  running. OpenStatsEngine infers it: a clock that is changing is running, one
-  that holds the same value for three messages is stopped. Turn this off with
-  `"inferRunning": false` in the scorebot config if your feed does report it.
+- **Run/stop flag.** On the emulator, `ClockStatus` stays blank the whole time —
+  over 30 seconds with the clock visibly counting down, all 30 messages had
+  `" "`. A real ScoreBot may well populate it. Both cases work:
+  - **If the feed reports a status, it wins.** `true`/`false`, `1`/`0`,
+    `Y`/`N`, `running`/`stopped`, `on`/`off` are all understood, and inference
+    never overrides a reported value.
+  - **If it doesn't, or sends something unrecognised, the clock movement decides.**
+    A changing clock is running; one that holds for three messages is stopped.
+
+  An unrecognised marker is deliberately treated as *unknown* rather than
+  "stopped". Guessing stopped is the worst failure available here — the game
+  clock silently freezes while the board counts down and time of possession is
+  wrong for the rest of the night. If your board uses its own markers, teach it
+  rather than relying on the fallback:
+
+  ```json
+  "runningValues": { "true": ["R"], "false": ["S"] }
+  ```
+
+  The Scorebot status panel names any value it could not read, so you will see
+  what to map. Turn the fallback off entirely with `"inferRunning": false`.
 
 ### Other feeds
 
@@ -636,7 +653,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 391 tests on a fresh clone (403 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 409 tests on a fresh clone (421 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation and field-source gating, baseball bases/count, per-sport
 scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

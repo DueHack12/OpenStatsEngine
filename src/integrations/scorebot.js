@@ -135,7 +135,7 @@ export function discoverPaths(raw) {
 
 /* ---------------- normalisation ---------------- */
 
-export function normalizeFeed(raw, fieldMap = {}) {
+export function normalizeFeed(raw, fieldMap = {}, opts = {}) {
   const map = {};
   for (const { key } of [...FEED_FIELDS, { key: 'auxRunning' },
     { key: 'homePossession' }, { key: 'awayPossession' }]) {
@@ -149,7 +149,7 @@ export function normalizeFeed(raw, fieldMap = {}) {
   return {
     period: toInt(pick(raw, map.period)),
     clockMs: typeof clockRaw === 'number' ? clockRaw : parseClock(clockRaw),
-    running: runningRaw === undefined ? undefined : truthy(runningRaw),
+    running: parseRunning(runningRaw, opts.runningValues),
     homeScore: toInt(pick(raw, map.homeScore)),
     awayScore: toInt(pick(raw, map.awayScore)),
     possession: normPoss(pick(raw, map.possession)) ?? sidePossession(raw, map),
@@ -162,10 +162,10 @@ export function normalizeFeed(raw, fieldMap = {}) {
     strikes: toInt(pick(raw, map.strikes)),
     bases: normBases(pick(raw, map.bases)),
     auxClockMs: auxMs(pick(raw, map.auxClock)),
-    auxRunning: (() => {
-      const v = pick(raw, map.auxRunning);
-      return v === undefined ? undefined : truthy(v);
-    })()
+    auxRunning: parseRunning(pick(raw, map.auxRunning), opts.runningValues),
+    // kept for diagnostics: a status the feed sent that we could not read
+    _unreadRunning: runningRaw !== undefined && parseRunning(runningRaw, opts.runningValues) === undefined
+      ? runningRaw : undefined
   };
 }
 
@@ -197,10 +197,41 @@ function sidePossession(raw, map) {
 }
 
 function toInt(v) { if (v == null || v === '') return undefined; const n = parseInt(v, 10); return isFinite(n) ? n : undefined; }
-function truthy(v) {
+
+const RUN_TRUE = ['true', '1', 'y', 'yes', 'on', 'run', 'running', 'active', 'started', 'go'];
+const RUN_FALSE = ['false', '0', 'n', 'no', 'off', 'stop', 'stopped', 'halt', 'halted', 'paused', 'inactive'];
+
+/**
+ * Read a clock run/stop flag, returning **undefined** for anything we do not
+ * positively recognise.
+ *
+ * This matters more than it looks. Scoreboards use all sorts of markers, and
+ * guessing "stopped" from an unknown value is the worst possible failure: the
+ * game clock silently freezes while the board counts down, and time of
+ * possession is wrong for the rest of the night. Returning undefined instead
+ * hands the decision to the movement inference, which observes what the clock
+ * is actually doing and is right either way.
+ *
+ * `extra` lets a venue teach it a marker without a code change:
+ *   "runningValues": { "true": ["R"], "false": ["S"] }
+ */
+export function parseRunning(v, extra = {}) {
   if (typeof v === 'boolean') return v;
-  const s = String(v).toLowerCase();
-  return s === 'true' || s === '1' || s === 'running' || s === 'on' || s === 'active';
+  if (v === undefined || v === null) return undefined;
+  const s = String(v).trim().toLowerCase();
+  if (s === '') return undefined;
+  const more = (k) => (extra[k] || []).map((x) => String(x).trim().toLowerCase());
+  if (more('true').includes(s)) return true;
+  if (more('false').includes(s)) return false;
+  if (RUN_TRUE.includes(s)) return true;
+  if (RUN_FALSE.includes(s)) return false;
+  return undefined;   // unrecognised — let the inference decide
+}
+
+/** Only used for plain flags where "present and non-blank" is the whole meaning. */
+function truthy(v) {
+  const r = parseRunning(v);
+  return r === undefined ? false : r;
 }
 function normPoss(v) {
   if (v == null) return undefined;
@@ -382,7 +413,13 @@ export class ScorebotClient {
     this.status.lastMessage = new Date().toISOString();
     this.status.lastRaw = raw;
     if (!this.gameId) return;
-    const feed = normalizeFeed(raw, this.cfg.fieldMap || {});
+    const feed = normalizeFeed(raw, this.cfg.fieldMap || {}, { runningValues: this.cfg.runningValues });
+    if (feed._unreadRunning !== undefined) {
+      this.status.unreadRunningValue = feed._unreadRunning;
+      this.status.hint = `The feed reports clock status as ${JSON.stringify(feed._unreadRunning)}, ` +
+        `which isn't a value I recognise — falling back to watching whether the clock moves. ` +
+        `Add "runningValues": { "true": [...], "false": [...] } to the scorebot config to map it.`;
+    }
     if (this.cfg.inferRunning !== false) this._inferRunning(feed);
     this.status.lastNormalized = feed;
     const written = applyFeed(this.store, this.gameId, feed, { ...this.cfg, sources: this.sources });

@@ -272,3 +272,15 @@ input[type=file]{padding:6px;font-size:12px}
 .sbstate.on{color:#04210f;background:var(--good)}
 .sbstate.wait{color:#2a1a02;background:var(--warn)}
 button.danger{background:#3a1d22;border-color:#5b2b32;color:#ffb4b4}
+
+/* ---------- controls the scoreboard feed is driving ---------- */
+.ctl.fed, .base.fed, button.fed{
+  opacity:.4;cursor:not-allowed;
+  background:repeating-linear-gradient(135deg,#1a1f2b,#1a1f2b 6px,#161b25 6px,#161b25 12px);
+}
+.ctl.fed:active,.base.fed:active{transform:none}
+input.fed, input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
+.fedbadge{
+  align-self:center;font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;
+  color:#04210f;background:var(--good);border-radius:6px;padding:4px 8px;white-space:nowrap;
+}

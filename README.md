@@ -9,8 +9,8 @@
 >
 > What that means for you:
 >
-> - **It has not yet run a live game.** The test suite is thorough (422 tests on a
->   fresh clone, 434 with real exports in place), but
+> - **It has not yet run a live game.** The test suite is thorough (425 tests on a
+>   fresh clone, 437 with real exports in place), but
 >   passing tests are not the same as a Friday night with a scoreboard operator.
 > - **Verify the stat rules against your own rulebook.** Scoring conventions were
 >   implemented to NFHS rules as understood at the time — sacks not counting as
@@ -443,6 +443,21 @@ Two quirks worth knowing, both handled:
   The Scorebot status panel names any value it could not read, so you will see
   what to map. Turn the fallback off entirely with `"inferRunning": false`.
 
+### While it is connected, the manual controls grey out
+
+Anything the feed is driving is disabled in the entry UI, with a green
+**⛓ Scorebot** badge on the bar and a tooltip saying which field it is and where
+to take it back. So if the board owns the clock, the operator is not fighting it
+with the −10s button.
+
+This follows the per-field sources exactly: set *Game Clock* to Manual and the
+clock buttons come back while the rest stay locked. It also follows the
+**connection**, not just the setting — if the broker drops, the controls unlock
+immediately rather than stranding the operator on a clock nothing is updating.
+
+Undo, Redo and the play-clock **Show** toggle never lock, because they are not
+feed data.
+
 ### Turning it off
 
 The **Enabled** switch acts immediately — untick it and the feed disconnects,
@@ -664,7 +679,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 422 tests on a fresh clone (434 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 425 tests on a fresh clone (437 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation and field-source gating, baseball bases/count, per-sport
 scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

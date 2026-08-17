@@ -10,10 +10,19 @@ import fs from 'node:fs';
 import { parseHudlPerGame, parseHudlSeasonHTML } from '../src/importers/hudl.js';
 import { detectStatsFormat } from '../src/importers/index.js';
 
+// Checked at the project root and in a "Hudl Files/" subfolder, which is where
+// the working copy keeps them. Both are gitignored.
+const find = (name) => {
+  for (const rel of [`../${name}`, `../Hudl Files/${name}`]) {
+    const u = new URL(rel, import.meta.url);
+    if (fs.existsSync(u)) return u;
+  }
+  return new URL(`../${name}`, import.meta.url);   // reported as missing
+};
 const FILES = {
-  perGame: new URL('../HUDL PER GAME.txt', import.meta.url),
-  season: new URL('../HUDL SEASON.html', import.meta.url),
-  pdf: new URL('../MAXPREPS EXAMPLE.pdf', import.meta.url)
+  perGame: find('HUDL PER GAME.txt'),
+  season: find('HUDL SEASON.html'),
+  pdf: find('MAXPREPS EXAMPLE.pdf')
 };
 
 const present = Object.entries(FILES).filter(([, u]) => fs.existsSync(u)).map(([k]) => k);

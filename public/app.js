@@ -237,9 +237,10 @@ function applyState() {
   $('#sb-period').textContent = `${st.clock.periodLabel} ${S.sport.periods.label}`.toUpperCase();
   const maxPeriod = S.sport.periods.count + (S.sport.periods.maxOvertimes ?? 3);
   const prevBtn = $('[data-period="prev"]'), nextBtn = $('[data-period="next"]');
-  if (prevBtn) prevBtn.disabled = st.clock.period <= 1;
+  const periodFed = !!st.feed?.owns?.period;
+  if (prevBtn) prevBtn.disabled = periodFed || st.clock.period <= 1;
   if (nextBtn) {
-    nextBtn.disabled = st.clock.period >= maxPeriod;
+    nextBtn.disabled = periodFed || st.clock.period >= maxPeriod;
     nextBtn.title = nextBtn.disabled ? `Capped at ${S.sport.periods.label.toLowerCase()} ${maxPeriod}` : '';
   }
   $('#btn-clock').textContent = st.clock.running ? '❚❚ Stop' : '▶ Start';
@@ -262,12 +263,66 @@ function applyState() {
     ? { ...st.auxClock, at: Date.now(), base: st.auxClock.ms }
     : null;
 
+  applyFeedLocks();
   renderTeamSwitch();
   renderDiamond();
   renderAux();
   renderRecent();
   tickClock();
   if ($('#view-stats').classList.contains('active')) renderStats();
+}
+
+/**
+ * Grey out the manual controls for anything the scoreboard feed is driving.
+ * Disabled only while the feed is actually connected, so a dropped broker hands
+ * control straight back rather than stranding the operator.
+ */
+function applyFeedLocks() {
+  const feed = S.state?.feed;
+  const owns = feed?.owns || {};
+  const why = (field) =>
+    `Coming from the Scorebot${feed?.topic ? ` (${feed.topic})` : ''}. ` +
+    `To enter it by hand, set "${field}" to Manual under Setup → Scorebot → Field sources.`;
+
+  const lock = (nodes, field, label) => {
+    for (const n of nodes) {
+      if (!n) continue;
+      const locked = !!owns[field];
+      n.disabled = locked;
+      n.classList.toggle('fed', locked);
+      if (locked) n.title = why(label);
+      else if (n.title.startsWith('Coming from the Scorebot')) n.title = '';
+    }
+  };
+
+  // game clock: start/stop needs both the value and the run state
+  const clockLocked = owns.clock && owns.running;
+  lock([$('#btn-clock')], clockLocked ? 'clock' : '__none', 'Game Clock');
+  lock($$('[data-clockadj]').concat([$('[data-clockset]')]), 'clock', 'Game Clock');
+  lock($$('[data-period]'), 'period', 'Period / Inning');
+  lock([$('#aux-toggle'), $('#aux-auto')].concat($$('#aux-presets button')), 'auxClock', 'Play / Shot Clock');
+  lock($$('[data-half]'), 'half', 'Top / Bottom');
+  lock($$('[data-base]'), 'bases', 'Runners on Base');
+  for (const b of $$('[data-count]')) {
+    const k = b.dataset.count;
+    if (k === 'reset') lock([b], (owns.balls && owns.strikes) ? 'balls' : '__none', 'Balls / Strikes');
+    else lock([b], k, { balls: 'Balls', strikes: 'Strikes', outs: 'Outs' }[k] || k);
+  }
+
+  // a badge on each bar, so it is obvious why things are greyed rather than broken
+  const badge = (barSel, fields, text) => {
+    const bar = $(barSel);
+    if (!bar) return;
+    let el2 = $('.fedbadge', bar);
+    const on = fields.some((f) => owns[f]);
+    if (!on) { el2?.remove(); return; }
+    if (!el2) { el2 = el('span', 'fedbadge'); bar.appendChild(el2); }
+    el2.textContent = text;
+    el2.title = `Live from the Scorebot${feed?.topic ? ` — ${feed.topic}` : ''}`;
+  };
+  badge('#clockbar', ['clock', 'running', 'period'], '⛓ Scorebot');
+  badge('#auxbar', ['auxClock'], '⛓ Scorebot');
+  badge('#diamondbar', ['half', 'outs', 'balls', 'strikes', 'bases'], '⛓ Scorebot');
 }
 
 /* ---------------------------- baseball situation ---------------------------- */
@@ -342,6 +397,11 @@ function renderAux() {
     const b = el('button', 'ctl', String(secs));
     b.onclick = () => auxOp('aux', { ms: secs * 1000 });
     wrap.appendChild(b);
+  }
+  // the preset buttons are rebuilt here, so re-apply any feed lock to them
+  const owns = S.state?.feed?.owns || {};
+  if (owns.auxClock) {
+    for (const b of $$('#aux-presets button')) { b.disabled = true; b.classList.add('fed'); }
   }
   tickAux();
 }

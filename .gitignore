@@ -4,12 +4,15 @@
 _backups/
 
 # Real HUDL / MaxPreps exports contain real students' names and stats.
-# Anchored to the repo root so the scrubbed fixtures in test/fixtures/ are kept.
-# (macOS git matches ignore patterns case-insensitively, hence the leading slash.)
-/HUDL*.txt
-/HUDL*.html
-/HUDL SEASON FILES/
-/MAXPREPS*.pdf
+# Matched anywhere, not just at the repo root: the working copy keeps them in a
+# "Hudl Files/" subfolder, which the old root-anchored patterns walked straight
+# past. test/fixtures/ is excluded from these rules and stays committed.
+Hudl Files/
+HUDL SEASON FILES/
+HUDL*.txt
+HUDL*.html
+MAXPREPS*.pdf
+!test/fixtures/**
 
 # local tooling config
 .claude/

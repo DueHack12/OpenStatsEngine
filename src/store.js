@@ -54,9 +54,16 @@ export class Store {
     // `scorebot` wholesale, so merging afterwards would merge it with itself and
     // silently drop every key the patch didn't mention — disconnecting the feed
     // would have erased its URL.
-    const prevScorebot = this.config.scorebot;
+    const prevScorebot = this.config.scorebot || {};
     this.config = { ...this.config, ...patch };
-    if (patch.scorebot) this.config.scorebot = { ...prevScorebot, ...patch.scorebot };
+    if (patch.scorebot) {
+      this.config.scorebot = { ...prevScorebot, ...patch.scorebot };
+      // `sources` is itself a map of per-field settings, so patching one field
+      // must not drop the rest. Same reason as above, one level deeper.
+      if (patch.scorebot.sources) {
+        this.config.scorebot.sources = { ...(prevScorebot.sources || {}), ...patch.scorebot.sources };
+      }
+    }
     this.saveConfig();
     return this.config;
   }

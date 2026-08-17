@@ -233,13 +233,30 @@ export function registerRoutes(route, ctx) {
   });
 
   /** The full derived state — this is what the entry UI polls/refreshes on. */
-  route('GET', '/api/games/:id/state', ({ params }) => deriveGame(store, params.id));
+  /**
+   * Which fields the live feed is currently driving. The entry UI greys out the
+   * matching manual controls so the operator is not fighting the scoreboard.
+   *
+   * Ownership needs the feed to be actually **connected**, not merely enabled:
+   * if the broker drops, manual control comes straight back rather than leaving
+   * the operator locked out of a clock nothing is updating.
+   */
+  function feedOwnership() {
+    const src = scorebot.sources;
+    const connected = !!scorebot.status.connected && scorebot.status.mode !== 'off';
+    const owns = {};
+    for (const { key } of FEED_FIELDS) owns[key] = connected && src[key] === 'scorebot';
+    return { connected, mode: scorebot.status.mode, topic: scorebot.status.topic || null, owns };
+  }
+
+  route('GET', '/api/games/:id/state', ({ params }) =>
+    ({ ...deriveGame(store, params.id), feed: feedOwnership() }));
 
   /** Everything the announcer page needs in one call: state plus the derived
    *  storylines, milestones and notable plays. */
   route('GET', '/api/games/:id/announcer', ({ params }) => {
     const g = deriveGame(store, params.id);
-    return { ...g, announcer: announcerView(store, params.id, g) };
+    return { ...g, feed: feedOwnership(), announcer: announcerView(store, params.id, g) };
   });
 
   route('GET', '/api/games/:id/events', ({ params, query }) => {

@@ -56,6 +56,13 @@ eq('pollMs survives', s.config.scorebot.pollMs, 500);
 s.updateConfig({ operator: 'Someone' });
 eq('an unrelated patch leaves scorebot alone', s.config.scorebot.url, 'mqtt://host:1883/t');
 eq('and applies its own change', s.config.operator, 'Someone');
+
+console.log('\n== nested sources map merges too ==');
+s.updateConfig({ scorebot: { sources: { clock: 'scorebot', bases: 'scorebot', outs: 'scorebot' } } });
+s.updateConfig({ scorebot: { sources: { clock: 'manual' } } });
+eq('patched field updated', s.config.scorebot.sources.clock, 'manual');
+eq('sibling source kept', s.config.scorebot.sources.bases, 'scorebot');
+eq('another sibling kept', s.config.scorebot.sources.outs, 'scorebot');
 fs.rmSync(root,{recursive:true,force:true});
 console.log(`\n  ${pass} passed, ${fail} failed\n`);
 process.exit(fail?1:0);

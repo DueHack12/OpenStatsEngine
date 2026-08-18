@@ -52,7 +52,21 @@ function broadcast(event, data) {
 
 const scorebot = new ScorebotClient({
   store,
-  onChange: (gameId) => broadcast('update', { gameId, source: 'scorebot' })
+  onChange: (gameId) => broadcast('update', { gameId, source: 'scorebot' }),
+  // A feed that dies mid-game is silent by nature — no events arrive, so the
+  // 'update' channel above would never fire and the booth would just watch the
+  // numbers quietly stop moving. Connection changes get their own channel.
+  onStatus: (st) => broadcast('feed', {
+    connected: !!st.connected,
+    mode: st.mode,
+    topic: st.topic || null,
+    unexpected: !!st.unexpected,
+    droppedAt: st.droppedAt || null,
+    reason: st.dropReason || null,
+    // Intent, so a listener can tell "the operator turned it off" from
+    // "the operator wants it and it is gone".
+    wanted: !!store.config.scorebot?.enabled
+  })
 });
 
 const ctx = { store, broadcast, scorebot, DATA, PUBLIC };

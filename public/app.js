@@ -129,6 +129,8 @@ function bindChrome() {
   $('#sb-disconnect').onclick = disconnectScorebot;
   $('#sb-test').onclick = testScorebot;
   $('#sb-startstop').onclick = toggleScorebot;
+  $('#fa-retry').onclick = () => { dismissFeedAlert(); connectScorebot(); };
+  $('#fa-dismiss').onclick = dismissFeedAlert;
   $('#ex-commit').onclick = commitGame;
   $('#ex-season-go').onclick = () => window.open(
     `/api/teams/${$('#ex-team').value}/export/season.csv?sport=${$('#ex-sport').value}&season=${encodeURIComponent($('#ex-season').value)}`);
@@ -195,6 +197,17 @@ function connectStream() {
     const d = JSON.parse(e.data || '{}');
     if (d.gameId && d.gameId === S.gameId) await refreshState();
   });
+  // The feed dropping produces no game events, so it needs its own channel —
+  // otherwise the only symptom is a screen that quietly stops updating.
+  es.addEventListener('feed', async (e) => {
+    const f = JSON.parse(e.data || '{}');
+    feedAlert(f);
+    // Refresh from the server rather than painting the SSE subset, so the
+    // Setup diagnostics keep their message counts and last-error text.
+    try { S.cfg = await api('/api/config'); paintScorebotStatus(S.cfg.scorebotStatus); }
+    catch { /* the alert is the part that matters */ }
+    if (S.gameId) await refreshState();   // hand the locked controls back
+  });
 }
 
 /* ---------------------------- game ---------------------------- */
@@ -233,6 +246,7 @@ function applyState() {
     $('.sb-abbr', box).textContent = t.abbrev || t.name;
     $('.sb-score', box).textContent = t.points;
     box.classList.toggle('poss', st.situation?.possession === side);
+    paintBoardScore(box, st, side, t.points);
   }
   $('#sb-period').textContent = `${st.clock.periodLabel} ${S.sport.periods.label}`.toUpperCase();
   const maxPeriod = S.sport.periods.count + (S.sport.periods.maxOvertimes ?? 3);
@@ -264,12 +278,83 @@ function applyState() {
     : null;
 
   applyFeedLocks();
+  feedAlert(st.feed);
   renderTeamSwitch();
   renderDiamond();
   renderAux();
   renderRecent();
   tickClock();
   if ($('#view-stats').classList.contains('active')) renderStats();
+}
+
+/**
+ * The board's score beside the one our logged plays add up to. Shown only when
+ * they disagree *and* the feed is currently driving that number: a stale figure
+ * left over from a dead feed is not a mismatch worth flagging, and a row that
+ * stays quiet when the two agree means an operator only ever reads it when
+ * something needs fixing.
+ */
+function paintBoardScore(box, st, side, entered) {
+  const chip = $('.sb-board', box);
+  if (!chip) return;
+  const fed = st.feed?.owns?.[side === 'home' ? 'homeScore' : 'awayScore'];
+  const board = st.officialScore?.[side];
+  const drift = !!fed && board != null && board !== entered;
+  chip.classList.toggle('hidden', !drift);
+  box.classList.toggle('drift', drift);
+  if (!drift) return;
+  const d = board - entered;
+  chip.textContent = `BOARD ${board} (${d > 0 ? '+' : ''}${d})`;
+  chip.title = d > 0
+    ? `The scoreboard has ${board}, the plays entered here add up to ${entered}. ` +
+      `Usually a scoring play not logged yet.`
+    : `The scoreboard has ${board}, the plays entered here add up to ${entered}. ` +
+      `Usually a play logged twice, or logged to the wrong team.`;
+}
+
+/* ---------------------------- feed alert ---------------------------- */
+const FEED = { lost: false, timer: null };
+
+/**
+ * Raised when a feed the operator wants has gone away on its own.
+ *
+ * The test is `droppedAt` — a connection that actually existed and then
+ * failed — not merely "not connected". Pressing Connect reports
+ * mode=mqtt/connected=false for a moment while the socket comes up, and that
+ * is not a fault; the status pill in Setup already says "Connecting…".
+ * Deliberately stopping clears both `wanted` and `droppedAt`, so switching
+ * the feed off never raises this either.
+ */
+function feedAlert(f) {
+  if (!f) return;
+  const box = $('#feedalert');
+  const lost = !!f.wanted && f.mode !== 'off' && !f.connected && !!f.droppedAt;
+
+  if (lost && !FEED.lost) {
+    FEED.lost = true;
+    clearTimeout(FEED.timer);
+    $('.fa-icon', box).textContent = '⚠';
+    $('.fa-title', box).textContent = 'Scorebot disconnected';
+    $('#fa-detail').textContent =
+      (f.topic ? f.topic + ' — ' : '') + (f.reason || f.dropReason || 'connection lost');
+    box.classList.remove('hidden', 'back');
+  } else if (!lost && FEED.lost) {
+    FEED.lost = false;
+    // Back on its own — say so and clear itself, rather than leaving a warning
+    // about a problem that has already fixed itself for someone to dismiss.
+    clearTimeout(FEED.timer);
+    $('.fa-icon', box).textContent = '✓';
+    $('.fa-title', box).textContent = 'Scorebot reconnected';
+    $('#fa-detail').textContent = f.topic || '';
+    box.classList.remove('hidden');
+    box.classList.add('back');
+    FEED.timer = setTimeout(() => box.classList.add('hidden'), 4000);
+  }
+}
+
+function dismissFeedAlert() {
+  clearTimeout(FEED.timer);
+  $('#feedalert').classList.add('hidden');
 }
 
 /**
@@ -1270,8 +1355,11 @@ function applySuggestedMap() {
 function paintScorebotStatus(st) {
   if (!st) return;
   const off = st.mode === 'off';
-  $('#sb-startstop').textContent = off ? 'Connect' : 'Disconnect';
-  $('#sb-startstop').classList.toggle('primary', off);
+  // One button at a time. Both used to be visible while connected, which put
+  // two "Disconnect" buttons side by side.
+  $('#sb-startstop').textContent = 'Connect';
+  $('#sb-startstop').classList.add('primary');
+  $('#sb-startstop').classList.toggle('hidden', !off);
   $('#sb-disconnect').classList.toggle('hidden', off);
   if (S.cfg?.scorebot) $('#sb-enabled').checked = !!S.cfg.scorebot.enabled && !off;
 

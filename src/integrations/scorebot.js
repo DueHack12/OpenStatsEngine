@@ -48,7 +48,7 @@ const CANDIDATES = {
   clock: ['clock', 'Clock', 'gameClock', 'displayClock', 'time', 'timeRemaining', 'data.clock'],
   running: ['running', 'clockRunning', 'ClockStatus', 'isRunning', 'clockState', 'data.running'],
   homeScore: ['homeScore', 'HomeScore', 'home.score', 'scores.home', 'homeTeamScore', 'data.homeScore'],
-  awayScore: ['awayScore', 'GuestScore', 'VisitorScore', 'away.score', 'scores.away',
+  awayScore: ['awayScore', 'AwayScore', 'GuestScore', 'VisitorScore', 'away.score', 'scores.away',
     'awayTeamScore', 'visitorScore', 'data.awayScore'],
   possession: ['possession', 'possessionTeam', 'ballPossession', 'data.possession'],
   // Sportzcast flags possession per side with a marker character rather than a name
@@ -136,6 +136,10 @@ export function discoverPaths(raw) {
 /* ---------------- normalisation ---------------- */
 
 export function normalizeFeed(raw, fieldMap = {}, opts = {}) {
+  // A default only covers `undefined`, and a config that stored fieldMap:null
+  // would land here as null. Every caller happens to guard with `|| {}` today;
+  // this makes the fifth one not have to remember.
+  fieldMap = fieldMap || {};
   const map = {};
   for (const { key } of [...FEED_FIELDS, { key: 'auxRunning' },
     { key: 'homePossession' }, { key: 'awayPossession' }]) {
@@ -271,13 +275,45 @@ export const basesCode = (b) => b ? `${b.first ? 1 : 0}${b.second ? 1 : 0}${b.th
 /* ---------------- client ---------------- */
 
 export class ScorebotClient {
-  constructor({ store, onChange = () => {} }) {
+  constructor({ store, onChange = () => {}, onStatus = () => {} }) {
     this.store = store;
     this.onChange = onChange;
+    this.onStatus = onStatus;
     this.timer = null;
     this.ws = null;
     this.gameId = null;
-    this.status = { connected: false, lastMessage: null, lastError: null, messages: 0, mode: 'off' };
+    this._stopping = false;
+    this.status = {
+      connected: false, lastMessage: null, lastError: null, messages: 0, mode: 'off',
+      droppedAt: null, dropReason: null
+    };
+  }
+
+  /**
+   * Every connection-state change goes through here so a feed that died on its
+   * own can be told apart from one the operator switched off. Only the first
+   * kind is worth interrupting the booth for, and nothing else would announce
+   * it: a dead feed sends no events, so the screen would simply stop changing.
+   */
+  _setConnected(v, why = null) {
+    const was = this.status.connected;
+    this.status.connected = !!v;
+    if (was === this.status.connected) return;
+    const unexpected = !v && !this._stopping;
+    if (unexpected) {
+      this.status.droppedAt = new Date().toISOString();
+      this.status.dropReason = why || this.status.lastError || 'connection lost';
+    } else if (v) {
+      this.status.droppedAt = null;
+      this.status.dropReason = null;
+      this.status.lastError = null;
+    }
+    this._notify(unexpected);
+  }
+
+  _notify(unexpected = false) {
+    try { this.onStatus({ ...this.status, unexpected }); }
+    catch { /* a listener must never take the feed down with it */ }
   }
 
   get cfg() { return this.store.config.scorebot || {}; }
@@ -286,20 +322,32 @@ export class ScorebotClient {
   start(gameId) {
     this.stop();
     const cfg = this.cfg;
-    if (!cfg.enabled || !cfg.url) { this.status.mode = 'off'; return this.status; }
+    if (!cfg.enabled || !cfg.url) { this.status.mode = 'off'; this._notify(); return this.status; }
     this.gameId = gameId;
+    this.status.droppedAt = null;
+    this.status.dropReason = null;
     if (/^mqtts?:\/\//i.test(cfg.url)) this._startMqtt(cfg);
     else if (/^wss?:\/\//i.test(cfg.url)) this._startWS(cfg);
     else this._startPoll(cfg);
+    this._notify();
     return this.status;
   }
 
   stop() {
-    if (this.timer) { clearInterval(this.timer); this.timer = null; }
-    if (this.ws) { try { this.ws.close(); } catch { /* already closing */ } this.ws = null; }
-    if (this.mqtt) { try { this.mqtt.end(); } catch { /* already closing */ } this.mqtt = null; }
-    this.status.connected = false;
-    this.status.mode = 'off';
+    // Guards the whole teardown, including the close/error callbacks the
+    // transports fire on their way out, so an operator-initiated stop never
+    // reads as an unexpected drop.
+    this._stopping = true;
+    try {
+      if (this.timer) { clearInterval(this.timer); this.timer = null; }
+      if (this.ws) { try { this.ws.close(); } catch { /* already closing */ } this.ws = null; }
+      if (this.mqtt) { try { this.mqtt.end(); } catch { /* already closing */ } this.mqtt = null; }
+      this._setConnected(false);
+      this.status.mode = 'off';
+      this.status.droppedAt = null;
+      this.status.dropReason = null;
+    } finally { this._stopping = false; }
+    this._notify();
   }
 
   _headers(cfg) {
@@ -320,8 +368,8 @@ export class ScorebotClient {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         this._handle(await res.json());
       } catch (e) {
-        this.status.connected = false;
         this.status.lastError = `${e.message} @ ${new Date().toLocaleTimeString()}`;
+        this._setConnected(false, e.message);
       }
     };
     tick();
@@ -342,9 +390,9 @@ export class ScorebotClient {
       username: cfg.mqttUser,
       password: cfg.mqttPassword || cfg.apiKey || undefined,
       onStatus: (st) => {
-        this.status.connected = !!st.connected;
         if (st.topic) this.status.topic = st.topic;
         if (st.error) this.status.lastError = `${st.error} @ ${new Date().toLocaleTimeString()}`;
+        this._setConnected(!!st.connected, st.error);
       },
       onMessage: (topic, payload) => {
         try { this._handle(JSON.parse(payload)); }
@@ -363,7 +411,7 @@ export class ScorebotClient {
       const ws = new WebSocket(this._url(cfg));
       this.ws = ws;
       ws.addEventListener('open', () => {
-        this.status.connected = true; this.status.lastError = null;
+        this.status.lastError = null; this._setConnected(true);
         if (cfg.subscribeMessage) {
           try { ws.send(typeof cfg.subscribeMessage === 'string' ? cfg.subscribeMessage : JSON.stringify(cfg.subscribeMessage)); }
           catch (e) { this.status.lastError = e.message; }
@@ -373,9 +421,9 @@ export class ScorebotClient {
         try { this._handle(JSON.parse(m.data)); }
         catch (e) { this.status.lastError = `Bad message: ${e.message}`; }
       });
-      ws.addEventListener('error', () => { this.status.lastError = 'WebSocket error'; this.status.connected = false; });
+      ws.addEventListener('error', () => { this.status.lastError = 'WebSocket error'; this._setConnected(false, 'WebSocket error'); });
       ws.addEventListener('close', () => {
-        this.status.connected = false;
+        this._setConnected(false, 'socket closed');
         if (this.ws === ws && this.gameId) setTimeout(() => { if (this.ws === ws) this._startWS(this.cfg); }, 3000);
       });
     } catch (e) {
@@ -408,7 +456,8 @@ export class ScorebotClient {
   }
 
   _handle(raw) {
-    this.status.connected = true;
+    // Data arriving is proof of life, whatever the transport last reported.
+    this._setConnected(true);
     this.status.messages++;
     this.status.lastMessage = new Date().toISOString();
     this.status.lastRaw = raw;

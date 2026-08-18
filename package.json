@@ -6,7 +6,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/engine.test.js && node test/v2.test.js && node test/v3.test.js && node test/v4.test.js && node test/v5.test.js && node test/mqtt.test.js && node test/announcer.test.js && node test/backup.test.js && node test/real-data.test.js && node test/smoke.js",
+    "test": "node test/engine.test.js && node test/v2.test.js && node test/v3.test.js && node test/v4.test.js && node test/v5.test.js && node test/v6.test.js && node test/mqtt.test.js && node test/announcer.test.js && node test/backup.test.js && node test/real-data.test.js && node test/smoke.js",
     "test:serve": "node server.js --port 8770 --data \"${TMPDIR:-/tmp}/ose-test-data\" --no-backup"
   },
   "engines": {

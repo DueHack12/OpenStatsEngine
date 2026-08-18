@@ -1,0 +1,132 @@
+/* Feed-loss alerting and the board-vs-entered score comparison. */
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { Store } from '../src/store.js';
+import { deriveGame } from '../src/engine.js';
+import { ScorebotClient, normalizeFeed } from '../src/integrations/scorebot.js';
+
+let pass = 0, fail = 0;
+const eq = (l, got, want) => {
+  const ok = JSON.stringify(got) === JSON.stringify(want);
+  console.log(`${ok ? '  ok  ' : '  FAIL'} ${l}: ${JSON.stringify(got)}${ok ? '' : ` (want ${JSON.stringify(want)})`}`);
+  ok ? pass++ : fail++;
+};
+const ok = (l, c, x = '') => { console.log(`${c ? '  ok  ' : '  FAIL'} ${l}${x ? ' — ' + x : ''}`); c ? pass++ : fail++; };
+
+const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ose-v6-'));
+const store = new Store(root);
+
+/* ------------------------------------------------------------------ *
+ * Connection state: only a feed that died on its own should alarm.
+ * ------------------------------------------------------------------ */
+console.log('\n== unexpected vs deliberate disconnection ==');
+
+const seen = [];
+const sb = new ScorebotClient({ store, onStatus: (st) => seen.push(st) });
+
+sb._setConnected(true);
+eq('connecting raises no drop', [sb.status.droppedAt, sb.status.dropReason], [null, null]);
+eq('the change is announced', seen.at(-1).unexpected, false);
+
+sb._setConnected(true);
+eq('a repeat of the same state says nothing', seen.length, 1);
+
+sb._setConnected(false, 'broker went away');
+ok('a drop is flagged unexpected', seen.at(-1).unexpected === true);
+eq('and carries the cause', sb.status.dropReason, 'broker went away');
+ok('and is timestamped', !!sb.status.droppedAt, sb.status.droppedAt);
+
+sb._setConnected(true);
+eq('coming back clears the drop', [sb.status.droppedAt, sb.status.dropReason], [null, null]);
+
+// The operator pressing Disconnect must never look like a fault.
+sb.stop();
+eq('a deliberate stop is not unexpected', seen.at(-1).unexpected, false);
+eq('and leaves no drop behind', [sb.status.droppedAt, sb.status.dropReason, sb.status.mode],
+   [null, null, 'off']);
+
+/* A transport that fires close/error handlers on its way out during stop()
+   must not sneak an "unexpected" through behind the operator's back. */
+const sb2 = new ScorebotClient({ store, onStatus: () => {} });
+sb2._setConnected(true);
+sb2.ws = { close() { sb2._setConnected(false, 'socket closed'); } };
+sb2.stop();
+eq('a late close during teardown stays deliberate', sb2.status.droppedAt, null);
+
+/* An error from before a successful connect is history. Reusing it as the drop
+   reason reported a stale (and misleading) cause hours later. */
+const sb3 = new ScorebotClient({ store, onStatus: () => {} });
+sb3.status.lastError = 'ECONNREFUSED 127.0.0.1:1 @ 7:04:11 PM';
+sb3._setConnected(true);
+eq('a successful connect clears the old error', sb3.status.lastError, null);
+sb3._setConnected(false);
+eq('so a later drop reports its own cause', sb3.status.dropReason, 'connection lost');
+
+/* ------------------------------------------------------------------ *
+ * The alarm predicate the console uses.
+ * ------------------------------------------------------------------ */
+console.log('\n== the alarm predicate ==');
+const alarm = (f) => !!f.wanted && f.mode !== 'off' && !f.connected && !!f.droppedAt;
+
+ok('running normally is quiet',
+  !alarm({ wanted: true, mode: 'mqtt', connected: true, droppedAt: null }));
+ok('the moment Connect is pressed is quiet',
+  !alarm({ wanted: true, mode: 'mqtt', connected: false, droppedAt: null }));
+ok('switched off is quiet',
+  !alarm({ wanted: false, mode: 'off', connected: false, droppedAt: null }));
+ok('a feed that died alarms',
+  alarm({ wanted: true, mode: 'mqtt', connected: false, droppedAt: '2026-08-17T00:00:00Z' }));
+ok('switching off after a drop goes quiet again',
+  !alarm({ wanted: false, mode: 'off', connected: false, droppedAt: null }));
+
+/* ------------------------------------------------------------------ *
+ * Board score vs the score our logged plays add up to.
+ * ------------------------------------------------------------------ */
+console.log('\n== board score never adds to the entered score ==');
+
+store.saveTeam({ name: 'Home', abbrev: 'HOM' });
+store.saveTeam({ name: 'Away', abbrev: 'AWY' });
+store.saveRoster('home', 'football', [{ number: '7', name: 'QB One' }], 'replace');
+const G = store.createGame({ sport: 'football', homeTeamId: 'home', awayTeamId: 'away', date: '2026-09-11' }).id;
+const p = store.getRoster('home', 'football')[0].id;
+
+store.appendEvent(G, { type: 'stat', team: 'home', action: 'rush', period: 1, clockMs: 600000,
+  data: { playerId: p, yards: 20, td: true } });
+eq('the touchdown scores 6', deriveGame(store, G).teams.home.points, 6);
+
+// The board says 7 — the extra point has not been logged yet.
+store.appendEvent(G, { type: 'score_official', source: 'scorebot', period: 1, clockMs: 600000,
+  data: { home: 7, away: 0 } });
+let g = deriveGame(store, G);
+eq('the entered score is untouched by the board', g.teams.home.points, 6);
+eq('the board score is kept apart', [g.officialScore.home, g.officialScore.away], [7, 0]);
+
+// A board that keeps repeating itself must not accumulate.
+for (let i = 0; i < 5; i++) {
+  store.appendEvent(G, { type: 'score_official', source: 'scorebot', period: 1, clockMs: 599000,
+    data: { home: 7, away: 0 } });
+}
+g = deriveGame(store, G);
+eq('repeated board readings replace rather than add', g.officialScore.home, 7);
+eq('and still never touch the entered score', g.teams.home.points, 6);
+
+// Log the extra point and the two agree.
+store.appendEvent(G, { type: 'stat', team: 'home', action: 'xp_good', period: 1, clockMs: 598000,
+  data: { playerId: p } });
+g = deriveGame(store, G);
+eq('entering the PAT closes the gap', [g.teams.home.points, g.officialScore.home], [7, 7]);
+
+/* ------------------------------------------------------------------ *
+ * A feed that names the home score almost certainly names the away one.
+ * ------------------------------------------------------------------ */
+console.log('\n== PascalCase away score ==');
+const f = normalizeFeed({ HomeScore: 14, AwayScore: 7, Period: 2 }, null);   // null map must not throw
+eq('HomeScore reads', f.homeScore, 14);
+eq('AwayScore reads too', f.awayScore, 7);
+const f2 = normalizeFeed({ HomeScore: 21, GuestScore: 3 }, null);
+eq('GuestScore still reads', f2.awayScore, 3);
+
+fs.rmSync(root, { recursive: true, force: true });
+console.log(`\n${'='.repeat(52)}\n  ${pass} passed, ${fail} failed\n${'='.repeat(52)}\n`);
+process.exit(fail ? 1 : 0);

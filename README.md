@@ -9,8 +9,8 @@
 >
 > What that means for you:
 >
-> - **It has not yet run a live game.** The test suite is thorough (425 tests on a
->   fresh clone, 437 with real exports in place), but
+> - **It has not yet run a live game.** The test suite is thorough (451 tests on a
+>   fresh clone, 463 with real exports in place), but
 >   passing tests are not the same as a Friday night with a scoreboard operator.
 > - **Verify the stat rules against your own rulebook.** Scoring conventions were
 >   implemented to NFHS rules as understood at the time — sacks not counting as
@@ -522,11 +522,45 @@ mid-game even while it is set to Scorebot.
 
 ### Score handling
 
-The score on your graphics comes from the plays you log. When the feed also sends
-a score it is stored *alongside* as `OfficialHomeScore` / `OfficialAwayScore`,
-with `ScoreMismatch` set to 1 when the two disagree — so a missed entry shows up
-instead of silently overwriting your box score. Bind `ScoreMismatch` to a small
-warning element in a GT title if you want to see it on the operator's preview.
+The score on your graphics comes from the plays you log. **Entering a touchdown
+never adds to a score arriving from the feed** — the two are kept as separate
+numbers and are only ever compared, never summed. A board reading replaces the
+previous one rather than accumulating, so a scoreboard repeating `HomeScore: 14`
+once a second does not run the score away.
+
+The feed's own figure is stored alongside as `OfficialHomeScore` /
+`OfficialAwayScore`, with `ScoreMismatch` set to 1 when the two disagree. Bind
+`ScoreMismatch` to a small warning element in a GT title if you want it on air.
+
+**In the entry console**, a disagreement shows as a red `BOARD 14 (+1)` chip
+under the affected team's score. It appears only while the feed is actually
+driving that score, so a stale figure left behind by a dead feed is not reported
+as a mismatch. Expect the chip briefly on every score — the board updates the
+instant the official signals, seconds before the play is entered — so treat it
+as a prompt, not an alarm: it means *the scoring play has not been logged yet*,
+or, if it reads negative, that something was logged twice or to the wrong team.
+
+### If the feed drops
+
+A dead feed is silent by nature: no events arrive, so without something watching
+the connection the only symptom is a screen that quietly stops changing. When a
+feed that was connected goes away on its own, a red banner drops in under the
+top bar naming the topic and the cause, with **Reconnect** and **Dismiss**. The
+controls it was driving unlock at the same moment, so the operator can keep
+working by hand.
+
+It is deliberately narrow about what counts as a fault:
+
+- Pressing **Disconnect** yourself never raises it.
+- Neither does the moment you press **Connect** — not-yet-connected is not the
+  same as dropped. The Setup status pill shows *Connecting…* for that.
+- If the feed comes back on its own, the banner turns green, says so, and clears
+  itself after a few seconds rather than leaving a warning to be dismissed about
+  a problem that has already fixed itself.
+
+The banner sits in the page flow rather than floating over it, so it never
+covers the scoreboard, and it survives a page reload while the feed is still
+down.
 
 ### Notes
 
@@ -679,9 +713,9 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 425 tests on a fresh clone (437 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
-scorebot normalisation and field-source gating, baseball bases/count, per-sport
-scoring), tests against the real HUDL exports in this folder, and an end-to-end
+Runs 451 tests on a fresh clone (463 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+scorebot normalisation, field-source gating, feed-loss detection, board-vs-entered
+score separation, baseball bases/count, per-sport scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,
 XML, CSV and PDF generation.
 

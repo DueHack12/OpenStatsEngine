@@ -246,7 +246,15 @@ export function registerRoutes(route, ctx) {
     const connected = !!scorebot.status.connected && scorebot.status.mode !== 'off';
     const owns = {};
     for (const { key } of FEED_FIELDS) owns[key] = connected && src[key] === 'scorebot';
-    return { connected, mode: scorebot.status.mode, topic: scorebot.status.topic || null, owns };
+    return {
+      connected, mode: scorebot.status.mode, topic: scorebot.status.topic || null, owns,
+      // `wanted` is the operator's intent, `connected` is reality. The two
+      // disagreeing is the whole alarm condition, and carrying it here means a
+      // page opened *after* the drop still shows it.
+      wanted: !!store.config.scorebot?.enabled,
+      droppedAt: scorebot.status.droppedAt || null,
+      dropReason: scorebot.status.dropReason || null
+    };
   }
 
   route('GET', '/api/games/:id/state', ({ params }) =>

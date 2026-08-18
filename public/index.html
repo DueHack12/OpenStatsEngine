@@ -25,12 +25,29 @@
   <div id="conn" class="conn" title="Connection status">●</div>
 </header>
 
+<div id="feedalert" class="hidden" role="alert" aria-live="assertive">
+  <div class="fa-card">
+    <div class="fa-icon">⚠</div>
+    <div class="fa-body">
+      <div class="fa-title">Scorebot disconnected</div>
+      <div class="fa-detail" id="fa-detail"></div>
+      <div class="fa-hint">Clock, score and situation are back under manual control.</div>
+    </div>
+    <div class="fa-acts">
+      <button id="fa-retry" class="primary">Reconnect</button>
+      <button id="fa-dismiss">Dismiss</button>
+    </div>
+  </div>
+</div>
+
+
 <!-- ============================ LIVE ============================ -->
 <section id="view-live" class="view active">
 
   <div id="scoreboard">
     <div class="sb-team" id="sb-away">
       <div class="sb-abbr"></div><div class="sb-score">0</div>
+      <div class="sb-board hidden"></div>
     </div>
     <div class="sb-mid">
       <div class="sb-clock" id="sb-clock">--:--</div>
@@ -43,6 +60,7 @@
     </div>
     <div class="sb-team" id="sb-home">
       <div class="sb-abbr"></div><div class="sb-score">0</div>
+      <div class="sb-board hidden"></div>
     </div>
   </div>
 

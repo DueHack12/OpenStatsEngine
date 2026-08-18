@@ -284,3 +284,52 @@ input.fed, input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
   align-self:center;font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;
   color:#04210f;background:var(--good);border-radius:6px;padding:4px 8px;white-space:nowrap;
 }
+
+/* ---------- scoreboard vs board score ---------- */
+/* Shown only when the scoreboard feed disagrees with the plays we logged, so a
+   quiet row means the two agree — nothing to read when nothing is wrong. */
+.sb-board{
+  margin-top:3px;font-size:12px;font-weight:800;letter-spacing:.5px;
+  border-radius:6px;padding:2px 6px;display:inline-block;
+  background:#3a1414;color:#ffb4b4;border:1px solid var(--bad);
+  font-variant-numeric:tabular-nums;
+}
+/* The entered score itself stays the normal colour. A mismatch shows briefly
+   every time a team scores — before the play is logged — so recolouring the
+   number the operator reads all game would train them to ignore it. */
+
+/* ---------- feed-lost alert ---------- */
+/* In normal flow directly under the top bar, so it pushes the page down rather
+   than covering the scoreboard — an alert that hides the away score is worse
+   than the problem it reports. Sticky keeps it in view once scrolled. */
+#feedalert{
+  position:sticky;top:0;z-index:60;padding:8px 10px 0;
+  max-width:1400px;margin:0 auto;
+}
+.fa-card{
+  display:flex;gap:12px;align-items:center;
+  background:#2a1113;border:2px solid var(--bad);border-radius:12px;padding:12px 14px;
+  box-shadow:0 10px 34px rgba(0,0,0,.6);
+  animation:fa-in .18s ease-out;
+}
+#feedalert.back .fa-card{background:#0f2418;border-color:var(--good);animation:none}
+@keyframes fa-in{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+.fa-icon{font-size:26px;line-height:1;color:var(--bad)}
+#feedalert.back .fa-icon{color:var(--good)}
+.fa-body{flex:1;min-width:0}
+.fa-title{font-weight:800;font-size:15px}
+.fa-detail{color:var(--dim);font-size:12.5px;margin-top:2px;word-break:break-word}
+.fa-hint{color:var(--dim);font-size:12.5px;margin-top:2px}
+#feedalert.back .fa-hint{display:none}
+.fa-acts{display:flex;flex-direction:column;gap:6px;flex-shrink:0}
+.fa-acts button{
+  border:1px solid var(--line);background:var(--panel2);border-radius:8px;
+  padding:8px 12px;cursor:pointer;font-weight:700;white-space:nowrap;
+}
+.fa-acts button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+#feedalert.back .fa-acts{display:none}
+@media (max-width:520px){
+  .fa-card{flex-wrap:wrap}
+  .fa-acts{flex-direction:row;width:100%}
+  .fa-acts button{flex:1}
+}

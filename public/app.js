@@ -129,8 +129,11 @@ function bindChrome() {
   $('#sb-disconnect').onclick = disconnectScorebot;
   $('#sb-test').onclick = testScorebot;
   $('#sb-startstop').onclick = toggleScorebot;
-  $('#fa-retry').onclick = () => { dismissFeedAlert(); connectScorebot(); };
-  $('#fa-dismiss').onclick = dismissFeedAlert;
+  $('#fa-retry').onclick = (e) => { e.stopPropagation(); dismissFeedAlert(); connectScorebot(); };
+  $('#fa-dismiss').onclick = (e) => { e.stopPropagation(); dismissFeedAlert(); };
+  // Clicking the banner anywhere clears it. The instinct is to click the thing
+  // you want gone, not to hunt for its button.
+  $('#feedalert').onclick = dismissFeedAlert;
   $('#ex-commit').onclick = commitGame;
   $('#ex-season-go').onclick = () => window.open(
     `/api/teams/${$('#ex-team').value}/export/season.csv?sport=${$('#ex-sport').value}&season=${encodeURIComponent($('#ex-season').value)}`);
@@ -313,7 +316,8 @@ function paintBoardScore(box, st, side, entered) {
 }
 
 /* ---------------------------- feed alert ---------------------------- */
-const FEED = { lost: false, timer: null };
+const FEED = { lost: false, timer: null, backAt: 0 };
+const BACK_MS = 4000;   // how long the green "reconnected" note stays up
 
 /**
  * Raised when a feed the operator wants has gone away on its own.
@@ -329,6 +333,11 @@ function feedAlert(f) {
   if (!f) return;
   const box = $('#feedalert');
   const lost = !!f.wanted && f.mode !== 'off' && !f.connected && !!f.droppedAt;
+
+  // Belt and braces for the auto-hide: a background tab throttles setTimeout
+  // hard, so the green note could sit there long after its four seconds were
+  // up. Every state refresh re-checks the clock and clears it.
+  if (FEED.backAt && Date.now() - FEED.backAt > BACK_MS) hideFeedAlert();
 
   if (lost && !FEED.lost) {
     FEED.lost = true;
@@ -348,13 +357,27 @@ function feedAlert(f) {
     $('#fa-detail').textContent = f.topic || '';
     box.classList.remove('hidden');
     box.classList.add('back');
-    FEED.timer = setTimeout(() => box.classList.add('hidden'), 4000);
+    FEED.backAt = Date.now();
+    FEED.timer = setTimeout(hideFeedAlert, BACK_MS);
   }
 }
 
-function dismissFeedAlert() {
+function hideFeedAlert() {
   clearTimeout(FEED.timer);
+  FEED.timer = null;
+  FEED.backAt = 0;
   $('#feedalert').classList.add('hidden');
+}
+
+/**
+ * Dismissing settles the state machine as well as hiding the banner. Without
+ * resetting `lost`, pressing Reconnect hid the warning and then the successful
+ * reconnect raised the green note in its place — the alert appeared to come
+ * back on its own moments after being dismissed.
+ */
+function dismissFeedAlert() {
+  FEED.lost = false;
+  hideFeedAlert();
 }
 
 /**

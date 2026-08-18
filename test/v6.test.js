@@ -127,6 +127,61 @@ eq('AwayScore reads too', f.awayScore, 7);
 const f2 = normalizeFeed({ HomeScore: 21, GuestScore: 3 }, null);
 eq('GuestScore still reads', f2.awayScore, 3);
 
+/* ------------------------------------------------------------------ *
+ * The alert has to be dismissable in both of its states.
+ *
+ * It shipped with `#feedalert.back .fa-acts{display:none}`, which hid the
+ * whole button row on the green "reconnected" note — leaving a banner with
+ * nothing to click. Static checks, because the console JS needs a DOM.
+ * ------------------------------------------------------------------ */
+console.log('\n== the alert can always be dismissed ==');
+
+const css = fs.readFileSync(new URL('../public/styles.css', import.meta.url), 'utf8');
+const html = fs.readFileSync(new URL('../public/index.html', import.meta.url), 'utf8');
+const app = fs.readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+
+ok('the banner markup has a dismiss control', html.includes('id="fa-dismiss"'));
+ok('the reconnected state does not hide the whole button row',
+  !/#feedalert\.back\s+\.fa-acts\s*\{[^}]*display\s*:\s*none/.test(css), 'the original bug');
+ok('it hides only the pointless Reconnect button',
+  /#feedalert\.back\s+#fa-retry\s*\{[^}]*display\s*:\s*none/.test(css));
+ok('the banner itself is clickable', /\$\('#feedalert'\)\.onclick/.test(app));
+
+/* Dismissing must settle the state machine, not just hide the element: leaving
+   `lost` true meant pressing Reconnect hid the warning and the successful
+   reconnect immediately raised the green note in its place, so the alert
+   looked like it came back on its own. */
+ok('dismissing clears the lost flag', /function dismissFeedAlert\(\)\s*\{\s*FEED\.lost = false;/.test(app));
+
+// The same transition, modelled: dismiss then reconnect must stay quiet.
+const machine = () => {
+  let lost = false; const shown = [];
+  const step = (f) => {
+    const isLost = !!f.wanted && f.mode !== 'off' && !f.connected && !!f.droppedAt;
+    if (isLost && !lost) { lost = true; shown.push('disconnected'); }
+    else if (!isLost && lost) { lost = false; shown.push('reconnected'); }
+  };
+  return { step, dismiss: () => { lost = false; }, shown };
+};
+
+let m = machine();
+m.step({ wanted: true, mode: 'mqtt', connected: false, droppedAt: 'x' });
+m.step({ wanted: true, mode: 'mqtt', connected: true, droppedAt: null });
+eq('left alone, a drop and recovery show both notes', m.shown, ['disconnected', 'reconnected']);
+
+m = machine();
+m.step({ wanted: true, mode: 'mqtt', connected: false, droppedAt: 'x' });
+m.dismiss();                                   // operator presses Reconnect
+m.step({ wanted: true, mode: 'mqtt', connected: true, droppedAt: null });
+eq('after dismissing, the recovery note does not reappear', m.shown, ['disconnected']);
+
+m = machine();
+m.step({ wanted: true, mode: 'mqtt', connected: false, droppedAt: 'x' });
+m.dismiss();
+m.step({ wanted: true, mode: 'mqtt', connected: true, droppedAt: null });
+m.step({ wanted: true, mode: 'mqtt', connected: false, droppedAt: 'y' });
+eq('but a fresh drop still warns', m.shown, ['disconnected', 'disconnected']);
+
 fs.rmSync(root, { recursive: true, force: true });
 console.log(`\n${'='.repeat(52)}\n  ${pass} passed, ${fail} failed\n${'='.repeat(52)}\n`);
 process.exit(fail ? 1 : 0);

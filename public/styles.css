@@ -327,7 +327,10 @@ input.fed, input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
   padding:8px 12px;cursor:pointer;font-weight:700;white-space:nowrap;
 }
 .fa-acts button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-#feedalert.back .fa-acts{display:none}
+/* Reconnecting is pointless once it is back, but Dismiss must stay — hiding
+   the whole row left the green note with nothing to click. */
+#feedalert.back #fa-retry{display:none}
+.fa-card{cursor:pointer}
 @media (max-width:520px){
   .fa-card{flex-wrap:wrap}
   .fa-acts{flex-direction:row;width:100%}

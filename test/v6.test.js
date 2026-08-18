@@ -4,7 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { Store } from '../src/store.js';
 import { deriveGame } from '../src/engine.js';
-import { ScorebotClient, normalizeFeed } from '../src/integrations/scorebot.js';
+import { ScorebotClient, normalizeFeed, DEFAULT_STALE_MS } from '../src/integrations/scorebot.js';
 
 let pass = 0, fail = 0;
 const eq = (l, got, want) => {
@@ -126,6 +126,61 @@ eq('HomeScore reads', f.homeScore, 14);
 eq('AwayScore reads too', f.awayScore, 7);
 const f2 = normalizeFeed({ HomeScore: 21, GuestScore: 3 }, null);
 eq('GuestScore still reads', f2.awayScore, 3);
+
+/* ------------------------------------------------------------------ *
+ * A board can stop sending while the socket stays perfectly healthy.
+ *
+ * Switching the ScoreConnect emulator off leaves MQTT connected and pinging
+ * happily, so the connection check alone saw nothing wrong while every number
+ * on screen froze. Silence is now a disconnection in its own right.
+ * ------------------------------------------------------------------ */
+console.log('\n== a quiet feed counts as a dead one ==');
+
+const stale = (cfg) => {
+  const c = new ScorebotClient({ store, onStatus: () => {} });
+  Object.defineProperty(c, 'cfg', { get: () => cfg });
+  return c._staleMs();
+};
+eq('unset falls back to the default', stale({}), DEFAULT_STALE_MS);
+eq('the default is five seconds', DEFAULT_STALE_MS, 5000);
+eq('a value is honoured', stale({ staleMs: 8000 }), 8000);
+eq('0 disables the check', stale({ staleMs: 0 }), 0);
+eq('"0" from a form field disables it too', stale({ staleMs: '0' }), 0);
+eq('nonsense falls back rather than disabling', stale({ staleMs: 'soon' }), DEFAULT_STALE_MS);
+eq('a negative value cannot disable it by accident', stale({ staleMs: -1 }), DEFAULT_STALE_MS);
+eq('sub-second thresholds are floored', stale({ staleMs: 50 }), 1000);
+
+const quiet = new ScorebotClient({ store, onStatus: () => {} });
+Object.defineProperty(quiet, 'cfg', { get: () => ({ staleMs: 5000 }) });
+quiet._setConnected(true);
+ok('connecting starts the clock', quiet._lastMsgAt > 0);
+eq('and is not stalled', quiet.status.stalled, false);
+
+// Wind the last message back past the threshold and let the watchdog look.
+quiet._startWatchdog();
+quiet._lastMsgAt = Date.now() - 6000;
+await new Promise((r) => setTimeout(r, 1200));
+eq('silence past the threshold disconnects', quiet.status.connected, false);
+eq('and is marked as a stall, not a dropped socket', quiet.status.stalled, true);
+ok('with a reason naming the silence', /no data for/.test(quiet.status.dropReason), quiet.status.dropReason);
+ok('and says the link itself is fine', /connection is open/.test(quiet.status.dropReason));
+
+// The next message revives it — recovery must not need an operator.
+quiet._handle({ HomeScore: 1 });
+eq('data resuming brings it straight back', quiet.status.connected, true);
+eq('and clears the stall', quiet.status.stalled, false);
+quiet.stop();
+eq('stopping clears the watchdog', quiet._watchdog, null);
+
+/* A genuine socket drop after a stall must not inherit the stale flag —
+   they need different fixes and so must not be reported as the same thing. */
+const mixed = new ScorebotClient({ store, onStatus: () => {} });
+mixed._setConnected(true);
+mixed._setConnected(false, 'no data for 5s', true);
+eq('the stall is flagged', mixed.status.stalled, true);
+mixed._setConnected(true);
+mixed._setConnected(false, 'socket closed');
+eq('a later real drop is not', mixed.status.stalled, false);
 
 /* ------------------------------------------------------------------ *
  * The alert has to be dismissable in both of its states.

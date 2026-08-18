@@ -343,7 +343,12 @@ function feedAlert(f) {
     FEED.lost = true;
     clearTimeout(FEED.timer);
     $('.fa-icon', box).textContent = '⚠';
-    $('.fa-title', box).textContent = 'Scorebot disconnected';
+    // Two different faults needing two different fixes: a dropped socket is a
+    // network or broker problem, a quiet board means the source stopped —
+    // emulator switched off, scoreboard powered down, operator went home.
+    $('.fa-title', box).textContent = f.stalled
+      ? 'Scorebot has stopped sending'
+      : 'Scorebot disconnected';
     $('#fa-detail').textContent =
       (f.topic ? f.topic + ' — ' : '') + (f.reason || f.dropReason || 'connection lost');
     box.classList.remove('hidden', 'back');
@@ -1290,6 +1295,9 @@ function loadScorebotForm() {
   $('#sb-key').value = sb.apiKey || '';
   $('#sb-game').value = sb.gameCode || '';
   $('#sb-poll').value = sb.pollMs || 1000;
+  // Shown in seconds, stored in ms. 0 is a real value here — it disables the
+  // check — so it must not fall through to the default.
+  $('#sb-stale').value = sb.staleMs == null ? 5 : Math.round(sb.staleMs / 1000);
   $('#sb-map').value = sb.fieldMap ? JSON.stringify(sb.fieldMap, null, 1) : '';
   renderSourceToggles();
   paintScorebotStatus(S.cfg.scorebotStatus);
@@ -1399,6 +1407,16 @@ function paintScorebotStatus(st) {
     (st.lastNormalized ? `\n\nnormalized: ${JSON.stringify(st.lastNormalized)}` : '');
 }
 
+/** Seconds on screen, milliseconds in the config. A blank box means "I did not
+ *  set this", not "turn the warning off" — only a deliberate 0 disables it. */
+function staleMsFromForm() {
+  const raw = $('#sb-stale').value.trim();
+  if (raw === '') return 5000;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 0) return 5000;
+  return n === 0 ? 0 : n * 1000;
+}
+
 function scorebotBody() {
   let fieldMap = null;
   const t = $('#sb-map').value.trim();
@@ -1415,6 +1433,7 @@ function scorebotBody() {
     enabled: $('#sb-enabled').checked, url: $('#sb-url').value.trim(),
     apiKey: $('#sb-key').value, gameCode: $('#sb-game').value.trim(),
     pollMs: parseInt($('#sb-poll').value, 10) || 1000,
+    staleMs: staleMsFromForm(),
     sources: S.sources || {},
     ...(fieldMap ? { fieldMap } : {})
   };

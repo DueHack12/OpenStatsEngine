@@ -9,8 +9,8 @@
 >
 > What that means for you:
 >
-> - **It has not yet run a live game.** The test suite is thorough (459 tests on a
->   fresh clone, 471 with real exports in place), but
+> - **It has not yet run a live game.** The test suite is thorough (478 tests on a
+>   fresh clone, 490 with real exports in place), but
 >   passing tests are not the same as a Friday night with a scoreboard operator.
 > - **Verify the stat rules against your own rulebook.** Scoring conventions were
 >   implemented to NFHS rules as understood at the time — sacks not counting as
@@ -549,6 +549,19 @@ top bar naming the topic and the cause, with **Reconnect** and **Dismiss**. The
 controls it was driving unlock at the same moment, so the operator can keep
 working by hand.
 
+**A board that stops sending counts as a drop.** This is the failure that hides:
+switch the ScoreConnect emulator off and MQTT keeps its TCP connection and its
+keepalives, so nothing looks wrong while every number on screen quietly freezes.
+Silence for more than **five seconds** (Setup → Scorebot → *Warn if silent for*)
+raises the banner under its own heading — *Scorebot has stopped sending*, saying
+the connection is open but the board has gone quiet, so you are not hunting a
+network problem that isn't there.
+
+The link is left running, so recovery needs nothing from the operator: the next
+message that arrives marks the feed live and clears the banner. Set the value to
+**0** to switch the check off, which is the right thing for a board that only
+publishes when something changes and is legitimately silent between plays.
+
 It is deliberately narrow about what counts as a fault:
 
 - Pressing **Disconnect** yourself never raises it.
@@ -713,9 +726,9 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 459 tests on a fresh clone (471 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
-scorebot normalisation, field-source gating, feed-loss detection, board-vs-entered
-score separation, baseball bases/count, per-sport scoring), tests against the real HUDL exports in this folder, and an end-to-end
+Runs 478 tests on a fresh clone (490 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+scorebot normalisation, field-source gating, feed-loss and stalled-feed detection,
+board-vs-entered score separation, baseball bases/count, per-sport scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,
 XML, CSV and PDF generation.
 

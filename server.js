@@ -63,6 +63,7 @@ const scorebot = new ScorebotClient({
     unexpected: !!st.unexpected,
     droppedAt: st.droppedAt || null,
     reason: st.dropReason || null,
+    stalled: !!st.stalled,
     // Intent, so a listener can tell "the operator turned it off" from
     // "the operator wants it and it is gone".
     wanted: !!store.config.scorebot?.enabled

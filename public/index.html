@@ -179,6 +179,8 @@
     <div class="grid2">
       <label class="inline"><input type="checkbox" id="sb-enabled"> Enabled</label>
       <label>Poll interval (ms)<input id="sb-poll" type="number" value="1000"></label>
+      <label title="Warn if the feed goes this long without sending anything. 0 turns the check off, for a board that only publishes when something changes."
+        >Warn if silent for (s)<input id="sb-stale" type="number" min="0" step="1" value="5"></label>
       <label class="wide2">Feed URL<input id="sb-url" placeholder="mqtt://127.0.0.1:1883/bot/0/json   ·   https://host/api/{game}   ·   wss://host/feed"></label>
       <label>API Key<input id="sb-key" type="password" placeholder="optional"></label>
       <label>Game Code<input id="sb-game" placeholder="replaces {game} in the URL"></label>

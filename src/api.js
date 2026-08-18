@@ -253,7 +253,8 @@ export function registerRoutes(route, ctx) {
       // page opened *after* the drop still shows it.
       wanted: !!store.config.scorebot?.enabled,
       droppedAt: scorebot.status.droppedAt || null,
-      dropReason: scorebot.status.dropReason || null
+      dropReason: scorebot.status.dropReason || null,
+      stalled: !!scorebot.status.stalled
     };
   }
 

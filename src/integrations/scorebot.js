@@ -274,6 +274,10 @@ export const basesCode = (b) => b ? `${b.first ? 1 : 0}${b.second ? 1 : 0}${b.th
 
 /* ---------------- client ---------------- */
 
+/** Silence longer than this counts as a dead feed. Sportzcast publishes about
+ *  once a second; five seconds is four missed beats, not a hiccup. */
+export const DEFAULT_STALE_MS = 5000;
+
 export class ScorebotClient {
   constructor({ store, onChange = () => {}, onStatus = () => {} }) {
     this.store = store;
@@ -283,9 +287,11 @@ export class ScorebotClient {
     this.ws = null;
     this.gameId = null;
     this._stopping = false;
+    this._watchdog = null;
+    this._lastMsgAt = 0;
     this.status = {
       connected: false, lastMessage: null, lastError: null, messages: 0, mode: 'off',
-      droppedAt: null, dropReason: null
+      droppedAt: null, dropReason: null, stalled: false
     };
   }
 
@@ -295,7 +301,7 @@ export class ScorebotClient {
    * kind is worth interrupting the booth for, and nothing else would announce
    * it: a dead feed sends no events, so the screen would simply stop changing.
    */
-  _setConnected(v, why = null) {
+  _setConnected(v, why = null, stalled = false) {
     const was = this.status.connected;
     this.status.connected = !!v;
     if (was === this.status.connected) return;
@@ -303,10 +309,17 @@ export class ScorebotClient {
     if (unexpected) {
       this.status.droppedAt = new Date().toISOString();
       this.status.dropReason = why || this.status.lastError || 'connection lost';
+      // Passed in rather than set by the caller beforehand, so a real socket
+      // drop following a stall cannot inherit the stale flag.
+      this.status.stalled = !!stalled;
     } else if (v) {
       this.status.droppedAt = null;
       this.status.dropReason = null;
       this.status.lastError = null;
+      // Fresh grace window: a link that comes up and never delivers anything
+      // should still trip the watchdog rather than sit there looking healthy.
+      this._lastMsgAt = Date.now();
+      this.status.stalled = false;
     }
     this._notify(unexpected);
   }
@@ -326,9 +339,11 @@ export class ScorebotClient {
     this.gameId = gameId;
     this.status.droppedAt = null;
     this.status.dropReason = null;
+    this._lastMsgAt = Date.now();
     if (/^mqtts?:\/\//i.test(cfg.url)) this._startMqtt(cfg);
     else if (/^wss?:\/\//i.test(cfg.url)) this._startWS(cfg);
     else this._startPoll(cfg);
+    this._startWatchdog();
     this._notify();
     return this.status;
   }
@@ -340,6 +355,7 @@ export class ScorebotClient {
     this._stopping = true;
     try {
       if (this.timer) { clearInterval(this.timer); this.timer = null; }
+      if (this._watchdog) { clearInterval(this._watchdog); this._watchdog = null; }
       if (this.ws) { try { this.ws.close(); } catch { /* already closing */ } this.ws = null; }
       if (this.mqtt) { try { this.mqtt.end(); } catch { /* already closing */ } this.mqtt = null; }
       this._setConnected(false);
@@ -348,6 +364,44 @@ export class ScorebotClient {
       this.status.dropReason = null;
     } finally { this._stopping = false; }
     this._notify();
+  }
+
+  /**
+   * How long the feed may stay silent before it counts as gone. `staleMs: 0`
+   * turns the check off, for a board that only publishes when something
+   * changes and is legitimately quiet between plays.
+   */
+  _staleMs() {
+    const v = this.cfg.staleMs;
+    if (v === 0 || v === '0') return 0;
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.max(1000, n) : DEFAULT_STALE_MS;
+  }
+
+  /**
+   * A scoreboard can stop sending while the socket stays perfectly healthy.
+   * Switch the ScoreConnect emulator off and MQTT holds its TCP connection and
+   * its keepalives, so nothing looks wrong while every number on screen quietly
+   * freezes — which is the failure the operator actually notices, ten minutes
+   * late. Silence past the threshold is treated as a disconnection.
+   *
+   * The transport is deliberately left running. Recovery is automatic: the next
+   * message marks the feed live again, exactly like a socket coming back.
+   */
+  _startWatchdog() {
+    if (this._watchdog) { clearInterval(this._watchdog); this._watchdog = null; }
+    const ms = this._staleMs();
+    if (!ms) return;
+    this._watchdog = setInterval(() => {
+      if (!this.status.connected || !this._lastMsgAt) return;
+      const quiet = Date.now() - this._lastMsgAt;
+      if (quiet <= ms) return;
+      this.status.quietMs = quiet;
+      // Flagged stalled so the booth can tell the two failures apart: a dead
+      // socket is a network problem, a quiet board is a source problem.
+      this._setConnected(false, `no data for ${Math.round(quiet / 1000)}s — ` +
+        'the connection is open but the board has gone quiet', true);
+    }, 1000);
   }
 
   _headers(cfg) {
@@ -458,6 +512,8 @@ export class ScorebotClient {
   _handle(raw) {
     // Data arriving is proof of life, whatever the transport last reported.
     this._setConnected(true);
+    this._lastMsgAt = Date.now();
+    this.status.quietMs = 0;
     this.status.messages++;
     this.status.lastMessage = new Date().toISOString();
     this.status.lastRaw = raw;

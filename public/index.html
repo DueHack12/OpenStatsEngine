@@ -311,7 +311,12 @@
 <section id="view-vmix" class="view">
   <div class="card">
     <h2>vMix Data Sources</h2>
-    <p class="hint">In vMix: <b>Settings → Data Sources → Add → XML</b>, paste a URL below, then bind the columns to your GT title fields. Each feed returns repeating <code>&lt;Row&gt;</code> elements. The <code>/vmix/live/</code> URLs always follow whichever game is active, so you set them up once for the season.</p>
+    <p class="hint">In vMix: <b>Settings → Data Sources → Add → XML</b>, paste a URL below, then bind the columns to your GT title fields. The <code>/vmix/live/</code> URLs always follow whichever game is active, so you set them up once for the season.</p>
+    <p class="warnbox"><b>Set the XPath as well as the URL.</b> Each feed is a set of repeating
+      <code>&lt;Row&gt;</code> elements, and vMix needs the XPath pointed at those rows — the value is
+      listed beside every URL below. If you leave it at the document name you get a single row whose one
+      cell reads like <code>Timeouts Usedtimeouts_used00PREPSHS</code>: that is a whole row's fields run
+      together, and it means the XPath is selecting the document instead of the rows inside it.</p>
     <div id="vmix-links"></div>
   </div>
   <div class="card">

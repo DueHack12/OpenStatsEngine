@@ -1504,22 +1504,27 @@ function renderExport() {
 function renderVmix() {
   const wrap = $('#vmix-links');
   const base = location.origin;
+  // The XPath matters as much as the URL: vMix needs it pointed at the
+  // repeating <Row> elements, not the document that contains them. Left at the
+  // document name it yields one row of every field concatenated together.
   const rows = [
-    ['Scoreboard', `${base}/vmix/live/scoreboard.xml`, 'Scores, clock, period, possession, TOP, drought, score by period'],
-    ['Team Stats', `${base}/vmix/live/teamstats.xml`, 'One row per stat — home vs away comparison graphics'],
-    ['Team Stats (flat)', `${base}/vmix/live/teamstatsflat.xml`, 'One row, every stat as its own column'],
-    ['Leaders', `${base}/vmix/live/leaders.xml`, 'Add ?cat=passing&side=home&limit=3'],
-    ['Players', `${base}/vmix/live/players.xml`, 'Add ?side=home&cat=rushing&limit=5'],
-    ['Scoring', `${base}/vmix/live/scoring.xml`, 'Scoring summary / ticker'],
-    ['Recent Plays', `${base}/vmix/live/plays.xml`, 'Add ?n=6'],
-    ['Roster', `${base}/vmix/live/roster.xml`, 'Add ?side=away'],
-    ['Everything', `${base}/vmix/live/all.xml`, 'All sections in one document']
+    ['Scoreboard', `${base}/vmix/live/scoreboard.xml`, 'Scoreboard/Row', 'Scores, clock, period, possession, TOP, drought, score by period'],
+    ['Team Stats', `${base}/vmix/live/teamstats.xml`, 'TeamStats/Row', 'One row per stat — home vs away comparison graphics'],
+    ['Team Stats (flat)', `${base}/vmix/live/teamstatsflat.xml`, 'TeamStatsFlat/Row', 'One row, every stat as its own column'],
+    ['Leaders', `${base}/vmix/live/leaders.xml`, 'Leaders/Row', 'Add ?cat=passing&side=home&limit=3'],
+    ['Players', `${base}/vmix/live/players.xml`, 'Players/Row', 'Add ?side=home&cat=rushing&limit=5'],
+    ['Scoring', `${base}/vmix/live/scoring.xml`, 'Scoring/Row', 'Scoring summary / ticker'],
+    ['Recent Plays', `${base}/vmix/live/plays.xml`, 'Plays/Row', 'Add ?n=6'],
+    ['Roster', `${base}/vmix/live/roster.xml`, 'Roster/Row', 'Add ?side=away'],
+    ['Everything', `${base}/vmix/live/all.xml`, 'Game/Scoreboard/Row', 'All sections nested under <Game> — point the XPath at the section you want, e.g. Game/TeamStats/Row']
   ];
-  wrap.innerHTML = rows.map(([l, u, note]) => `
+  wrap.innerHTML = rows.map(([l, u, xp, note]) => `
     <div class="vrow"><span class="lbl">${esc(l)}</span><code>${esc(u)}</code>
       <button data-copy="${esc(u)}">Copy</button>
       <a href="${esc(u)}" target="_blank" rel="noopener"><button>Open</button></a></div>
-    <div class="hint" style="margin:-2px 0 8px 8px">${esc(note)}</div>`).join('');
+    <div class="hint" style="margin:-2px 0 8px 8px">${esc(note)}<br>
+      <b>XPath</b> <code>${esc(xp)}</code>
+      <button class="tiny" data-copy="${esc(xp)}">Copy</button></div>`).join('');
   $$('[data-copy]', wrap).forEach((b) => b.onclick = async () => {
     try { await navigator.clipboard.writeText(b.dataset.copy); toast('Copied', 'ok'); }
     catch { toast('Copy failed — select the URL manually', 'err'); }

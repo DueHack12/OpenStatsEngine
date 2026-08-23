@@ -9,8 +9,8 @@
 >
 > What that means for you:
 >
-> - **It has not yet run a live game.** The test suite is thorough (478 tests on a
->   fresh clone, 490 with real exports in place), but
+> - **It has not yet run a live game.** The test suite is thorough (498 tests on a
+>   fresh clone, 510 with real exports in place), but
 >   passing tests are not the same as a Friday night with a scoreboard operator.
 > - **Verify the stat rules against your own rulebook.** Scoring conventions were
 >   implemented to NFHS rules as understood at the time — sacks not counting as
@@ -316,29 +316,39 @@ suspects for the sport in play, and **F** goes full screen for a booth monitor.
 
 ### Option A — HTTP (recommended)
 
-In vMix: **Settings → Data Sources → Add → XML**, paste a URL, set a refresh
-interval (1 second is fine), then bind columns to your GT title fields.
+In vMix: **Settings → Data Sources → Add → XML**, paste a URL, **set the XPath**,
+set a refresh interval (1 second is fine), then bind columns to your GT title
+fields.
+
+> **The XPath is not optional.** Every document is a set of repeating `<Row>`
+> elements, and vMix needs the XPath pointed at those rows — `TeamStats/Row`,
+> not `TeamStats`. Aim it at the document instead and vMix returns a single row
+> whose one cell reads like `Timeouts Usedtimeouts_used00PREPSHS`: that is one
+> row's fields concatenated, and it means the XPath selected the document rather
+> than the rows inside it.
 
 Use the `/vmix/live/` URLs — they always follow whichever game is active, so you
 configure vMix **once for the whole season**:
 
-| Feed | URL |
-|---|---|
-| Scoreboard | `http://<server-ip>:8080/vmix/live/scoreboard.xml` |
-| Team stats (one row per stat) | `http://<server-ip>:8080/vmix/live/teamstats.xml` |
-| Team stats (one wide row) | `http://<server-ip>:8080/vmix/live/teamstatsflat.xml` |
-| Leaders | `http://<server-ip>:8080/vmix/live/leaders.xml` |
-| Players | `http://<server-ip>:8080/vmix/live/players.xml` |
-| Scoring summary | `http://<server-ip>:8080/vmix/live/scoring.xml` |
-| Recent plays | `http://<server-ip>:8080/vmix/live/plays.xml` |
-| Roster | `http://<server-ip>:8080/vmix/live/roster.xml` |
-| Everything | `http://<server-ip>:8080/vmix/live/all.xml` |
+| Feed | URL | XPath |
+|---|---|---|
+| Scoreboard | `http://<server-ip>:8080/vmix/live/scoreboard.xml` | `Scoreboard/Row` |
+| Team stats (one row per stat) | `http://<server-ip>:8080/vmix/live/teamstats.xml` | `TeamStats/Row` |
+| Team stats (one wide row) | `http://<server-ip>:8080/vmix/live/teamstatsflat.xml` | `TeamStatsFlat/Row` |
+| Leaders | `http://<server-ip>:8080/vmix/live/leaders.xml` | `Leaders/Row` |
+| Players | `http://<server-ip>:8080/vmix/live/players.xml` | `Players/Row` |
+| Scoring summary | `http://<server-ip>:8080/vmix/live/scoring.xml` | `Scoring/Row` |
+| Recent plays | `http://<server-ip>:8080/vmix/live/plays.xml` | `Plays/Row` |
+| Roster | `http://<server-ip>:8080/vmix/live/roster.xml` | `Roster/Row` |
+| Everything | `http://<server-ip>:8080/vmix/live/all.xml` | `Game/TeamStats/Row` etc. |
 
-The **vMix** tab in the app lists these with copy buttons and the correct IP
-already filled in.
+The **vMix** tab in the app lists these with copy buttons for both the URL and
+the XPath, and the correct IP already filled in.
 
-Every document is a flat list of `<Row>` elements, which is the shape vMix's XML
-data source expects.
+`all.xml` is the exception to the flat shape: it nests every section under a
+`<Game>` element, so point the XPath at the section you want —
+`Game/Scoreboard/Row`, `Game/TeamStats/Row`, and so on. Each single-purpose
+document has its rows at the top level.
 
 **Filters** — narrow a feed with query parameters:
 
@@ -726,7 +736,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 478 tests on a fresh clone (490 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 498 tests on a fresh clone (510 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation, field-source gating, feed-loss and stalled-feed detection,
 board-vs-entered score separation, baseball bases/count, per-sport scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

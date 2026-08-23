@@ -5,6 +5,7 @@ import os from 'node:os';
 import { Store } from '../src/store.js';
 import { deriveGame } from '../src/engine.js';
 import { ScorebotClient, normalizeFeed, DEFAULT_STALE_MS } from '../src/integrations/scorebot.js';
+import * as vmix from '../src/vmix.js';
 
 let pass = 0, fail = 0;
 const eq = (l, got, want) => {
@@ -92,7 +93,7 @@ const G = store.createGame({ sport: 'football', homeTeamId: 'home', awayTeamId: 
 const p = store.getRoster('home', 'football')[0].id;
 
 store.appendEvent(G, { type: 'stat', team: 'home', action: 'rush', period: 1, clockMs: 600000,
-  data: { playerId: p, yards: 20, td: true } });
+  data: { rusher: p, yards: 20, td: true } });
 eq('the touchdown scores 6', deriveGame(store, G).teams.home.points, 6);
 
 // The board says 7 — the extra point has not been logged yet.
@@ -113,7 +114,7 @@ eq('and still never touch the entered score', g.teams.home.points, 6);
 
 // Log the extra point and the two agree.
 store.appendEvent(G, { type: 'stat', team: 'home', action: 'xp_good', period: 1, clockMs: 598000,
-  data: { playerId: p } });
+  data: { kicker: p } });
 g = deriveGame(store, G);
 eq('entering the PAT closes the gap', [g.teams.home.points, g.officialScore.home], [7, 7]);
 
@@ -236,6 +237,49 @@ m.dismiss();
 m.step({ wanted: true, mode: 'mqtt', connected: true, droppedAt: null });
 m.step({ wanted: true, mode: 'mqtt', connected: false, droppedAt: 'y' });
 eq('but a fresh drop still warns', m.shown, ['disconnected', 'disconnected']);
+
+/* ------------------------------------------------------------------ *
+ * Every XPath the vMix tab advertises has to match the XML we emit.
+ *
+ * The app handed out URLs without mentioning the XPath at all, so vMix was
+ * left pointed at the document rather than the rows inside it and returned a
+ * single row of every field concatenated — "Timeouts Usedtimeouts_used00PREPSHS".
+ * It reads like corrupt data, but it was a missing setting.
+ * ------------------------------------------------------------------ */
+console.log('\n== advertised XPaths match the XML ==');
+
+const advertised = /\['[^']+', `\$\{base\}\/vmix\/live\/([a-z]+)\.xml`, '([^']+)'/g;
+const listed = [...app.matchAll(advertised)].map(([, file, xp]) => ({ file, xp }));
+eq('every feed in the vMix tab carries one', listed.length, 9);
+
+// Walk the path by element name — enough to prove the route exists in the doc.
+const resolves = (xml, path) => {
+  let depth = 0;
+  for (const step of path.split('/')) {
+    const at = xml.indexOf(`<${step}`, depth);
+    if (at < 0) return false;
+    depth = at + step.length;
+  }
+  return true;
+};
+
+const G2 = store.createGame({ sport: 'football', homeTeamId: 'home', awayTeamId: 'away', date: '2026-10-02' }).id;
+store.appendEvent(G2, { type: 'stat', team: 'home', action: 'rush', period: 1, clockMs: 600000,
+  data: { rusher: p, yards: 12, td: true } });
+store.appendEvent(G2, { type: 'stat', team: 'home', action: 'pass_complete', period: 1, clockMs: 580000,
+  data: { passer: p, receiver: p, yards: 22, first: true } });
+const g2 = deriveGame(store, G2);
+ok('the fixture actually produces player stats', Object.keys(g2.players).length > 0,
+  `${Object.keys(g2.players).length} players`);
+
+for (const { file, xp } of listed) {
+  const build = vmix.XML_VIEWS[file];
+  if (!build) { ok(`${file}.xml is a real view`, false, 'no builder for it'); continue; }
+  const xml = build(g2, {});
+  ok(`${xp} resolves in ${file}.xml`, resolves(xml, xp));
+  // The failure being guarded against: the document name alone is not enough.
+  ok(`${file}.xml really does repeat <Row>`, xml.includes('<Row>'));
+}
 
 fs.rmSync(root, { recursive: true, force: true });
 console.log(`\n${'='.repeat(52)}\n  ${pass} passed, ${fail} failed\n${'='.repeat(52)}\n`);

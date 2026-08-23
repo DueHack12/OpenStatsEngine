@@ -336,3 +336,17 @@ input.fed, input[type=checkbox]:disabled{opacity:.4;cursor:not-allowed}
   .fa-acts{flex-direction:row;width:100%}
   .fa-acts button{flex:1}
 }
+
+/* The XPath is as much a required setting as the URL — vMix silently produces
+   one row of concatenated text without it, which reads like corrupt data
+   rather than a missing setting. Worth a box, not a footnote. */
+.warnbox{
+  background:#2a1f08;border:1px solid var(--warn);border-radius:8px;
+  padding:9px 12px;margin:8px 0 4px;font-size:13px;line-height:1.5;color:#f5dfae;
+}
+.warnbox code{background:#0d1017;color:#ffd79a}
+button.tiny{
+  background:var(--panel2);border:1px solid var(--line);color:var(--dim);
+  border-radius:5px;padding:1px 7px;font-size:11px;font-weight:700;cursor:pointer;
+}
+button.tiny:hover{color:var(--fg)}

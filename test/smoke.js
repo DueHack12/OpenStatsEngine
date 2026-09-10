@@ -231,6 +231,33 @@ console.log('\n== errors are sane ==');
   try { await j('/api/games/nope/state'); ok('404s unknown game', false); }
   catch (e) { ok('404s unknown game', /404/.test(e.message)); }
 
+  console.log('\n== archiving ==');
+  {
+    // Archiving is a visibility flag and nothing more: everything the game
+    // holds has to survive it, or "archive" would just be a slower delete.
+    const before = await j(`/api/games/${G}/state`);
+    const r1 = await j(`/api/games/${G}/archive`, { method: 'POST', body: '{}' });
+    ok('archive reports the new state', r1.archived === true);
+    const meta = (await j('/api/games')).find((x) => x.id === G);
+    ok('the flag is on the game', !!meta.archived);
+    ok('and it is timestamped', !!meta.archivedAt, meta.archivedAt);
+
+    const after = await j(`/api/games/${G}/state`);
+    check('the score is untouched', after.teams.home.points, before.teams.home.points);
+    check('the log is untouched', after.counts.effective, before.counts.effective);
+    ok('the PDF still exports', (await bin(`/api/games/${G}/export/report.pdf`)).length > 800);
+    ok('the box score still exports', (await j(`/api/games/${G}/export/boxscore.csv`)).length > 50);
+    ok('vMix XML still serves', (await j(`/vmix/${G}/scoreboard.xml`)).includes('<Row>'));
+
+    // It must be reversible, and it must not have quietly deactivated anything.
+    const r2 = await j(`/api/games/${G}/archive`, { method: 'POST', body: JSON.stringify({ archived: false }) });
+    ok('unarchiving works', r2.archived === false);
+    ok('and clears the timestamp', !(await j('/api/games')).find((x) => x.id === G).archivedAt);
+
+    try { await j('/api/games/not-a-game/archive', { method: 'POST', body: '{}' }); ok('404s an unknown game', false); }
+    catch (e) { ok('404s an unknown game', /404|No such game/.test(e.message)); }
+  }
+
   console.log('\n== monitor endpoint ==');
   {
     const m = await j('/api/monitor');

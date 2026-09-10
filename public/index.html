@@ -26,6 +26,17 @@
   <div id="conn" class="conn" title="Connection status">●</div>
 </header>
 
+<div id="ask" class="hidden" role="dialog" aria-modal="true" aria-labelledby="ask-title">
+  <div class="ask-card">
+    <div class="ask-title" id="ask-title"></div>
+    <div class="ask-body" id="ask-body"></div>
+    <div class="ask-acts">
+      <button id="ask-no"></button>
+      <button id="ask-yes" class="primary"></button>
+    </div>
+  </div>
+</div>
+
 <div id="feedalert" class="hidden" role="alert" aria-live="assertive">
   <div class="fa-card">
     <div class="fa-icon">⚠</div>

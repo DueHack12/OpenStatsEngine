@@ -227,6 +227,27 @@ export function registerRoutes(route, ctx) {
     touch(params.id);
     return m;
   });
+  /**
+   * Archiving hides a finished game from the games list. It touches nothing
+   * else: the event log, exports and season totals are all untouched, and it
+   * is reversible with the same call.
+   *
+   * It deliberately does NOT deactivate the game. Archiving right after the
+   * final whistle is the normal case, and the crew may still be holding a
+   * final-score graphic — pulling the vMix feed out from under them to tidy a
+   * list would be a poor trade.
+   */
+  route('POST', '/api/games/:id/archive', ({ params, body }) => {
+    store.getGame(params.id) || bad('No such game', 404);
+    const archived = body?.archived !== false;
+    const meta = store.updateGame(params.id, {
+      archived,
+      archivedAt: archived ? localStamp() : null
+    });
+    broadcast('update', { gameId: params.id });
+    return { ok: true, id: params.id, archived: !!meta.archived };
+  });
+
   route('DELETE', '/api/games/:id', ({ params }) => {
     store.deleteGame(params.id);
     if (activeId() === params.id) store.updateConfig({ activeGameId: null });

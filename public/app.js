@@ -28,7 +28,7 @@ const S = {
   gameId: null, sport: null, state: null,
   side: 'home',
   sticky: { home: {}, away: {} },
-  statsView: 'team',
+  statsView: 'team', showArchived: false,
   sources: {}, suggestedMap: null, importText: '', aux: null,
   clock: { base: 0, at: 0, running: false, down: true },
   rosterEdit: []
@@ -1031,22 +1031,65 @@ async function createGame() {
 function renderGameList() {
   const wrap = $('#gamelist'); wrap.innerHTML = '';
   if (!S.games.length) { wrap.innerHTML = '<div class="hint">No games yet.</div>'; return; }
+
+  // The active game always shows, archived or not — nobody should have to hunt
+  // for the game that is currently on air.
+  const isHidden = (g) => !!g.archived && g.id !== S.gameId;
+  const hidden = S.games.filter(isHidden).length;
+  const shown = S.showArchived ? S.games : S.games.filter((g) => !isHidden(g));
+
+  if (hidden) {
+    const bar = el('div', 'archbar');
+    const btn = el('button', 'linkish', S.showArchived
+      ? `Hide ${hidden} archived`
+      : `Show ${hidden} archived`);
+    btn.onclick = () => { S.showArchived = !S.showArchived; renderGameList(); };
+    bar.appendChild(btn);
+    wrap.appendChild(bar);
+  }
+
+  if (!shown.length) {
+    wrap.appendChild(el('div', 'hint', 'Every game is archived. Use the button above to see them.'));
+    return;
+  }
+
   const list = el('div', 'glist');
-  for (const g of S.games) {
-    const row = el('div', 'grow' + (g.id === S.gameId ? ' active' : ''));
+  for (const g of shown) {
+    const row = el('div', 'grow' + (g.id === S.gameId ? ' active' : '') + (g.archived ? ' arch' : ''));
     const main = el('div', 'gmain');
-    main.appendChild(el('div', null, `${g.awayName} at ${g.homeName}`));
+    const title = el('div', null, `${g.awayName} at ${g.homeName}`);
+    if (g.archived) title.appendChild(el('span', 'archtag', 'ARCHIVED'));
+    main.appendChild(title);
     main.appendChild(el('div', 'gsub', `${g.date} · ${g.sport} · ${g.level} · ${g.status}${g.venue ? ' · ' + g.venue : ''}`));
     row.appendChild(main);
+
     const act = el('button', null, g.id === S.gameId ? 'Active' : 'Make Active');
     act.onclick = async () => {
       await api(`/api/games/${encodeURIComponent(g.id)}/activate`, { method: 'POST', body: '{}' });
       await openGame(g.id); renderGameList(); go('live');
     };
     row.appendChild(act);
+
+    const arch = el('button', null, g.archived ? 'Unarchive' : 'Archive');
+    arch.title = g.archived
+      ? 'Put this game back in the list'
+      : 'Hide from this list. Nothing is deleted — exports and season totals are untouched.';
+    arch.onclick = async () => {
+      try {
+        await api(`/api/games/${encodeURIComponent(g.id)}/archive`, {
+          method: 'POST', body: JSON.stringify({ archived: !g.archived })
+        });
+        S.games = await api('/api/games');
+        renderGameList();
+        toast(g.archived ? 'Back in the list' : 'Archived — nothing deleted', 'ok');
+      } catch (e) { toast(e.message, 'err'); }
+    };
+    row.appendChild(arch);
+
     const del = el('button', null, 'Delete');
     del.onclick = async () => {
-      if (!confirm(`Delete "${g.id}" and all of its logged entries? This cannot be undone.`)) return;
+      if (!confirm(`Delete "${g.id}" and all of its logged entries? This cannot be undone.\n\n` +
+        `To clear it from this list without losing anything, use Archive instead.`)) return;
       await api(`/api/games/${encodeURIComponent(g.id)}`, { method: 'DELETE' });
       S.games = await api('/api/games');
       if (S.gameId === g.id) showNoGame();
@@ -1588,12 +1631,61 @@ function renderVmix() {
     'data/vmix/<game-id>/  keeps a per-game copy.';
 }
 
+/**
+ * A yes/no question with wording of our own. `confirm()` only offers OK and
+ * Cancel, which cannot express "Archive now" against "Keep it in the list".
+ * Resolves true for the primary action.
+ */
+function ask({ title, body, yes, no }) {
+  return new Promise((resolve) => {
+    const box = $('#ask');
+    $('#ask-title').textContent = title;
+    $('#ask-body').textContent = body;
+    $('#ask-yes').textContent = yes;
+    $('#ask-no').textContent = no;
+    const done = (v) => {
+      box.classList.add('hidden');
+      document.removeEventListener('keydown', onKey);
+      resolve(v);
+    };
+    const onKey = (e) => {
+      if (e.key === 'Escape') done(false);
+      if (e.key === 'Enter') done(true);
+    };
+    $('#ask-yes').onclick = () => done(true);
+    $('#ask-no').onclick = () => done(false);
+    document.addEventListener('keydown', onKey);
+    box.classList.remove('hidden');
+    $('#ask-yes').focus();
+  });
+}
+
 async function commitGame() {
   if (!S.gameId) return;
+  const id = S.gameId;
   try {
-    const r = await api(`/api/games/${encodeURIComponent(S.gameId)}/commit`, { method: 'POST', body: '{}' });
+    const r = await api(`/api/games/${encodeURIComponent(id)}/commit`, { method: 'POST', body: '{}' });
     S.games = await api('/api/games');
     renderGameList();
     toast(`Final ${r.final.away}-${r.final.home} committed to season`, 'ok');
+
+    // Offered rather than done automatically: the crew is often still holding
+    // a final-score graphic, and exports are usually pulled straight after.
+    const archiveNow = await ask({
+      title: `Final ${r.final.away}–${r.final.home} committed`,
+      body: 'Archive this game now to clear it from the games list? '
+          + 'Nothing is deleted — the play-by-play, exports and season totals all stay, '
+          + 'and it stays on air if it is still the active game. '
+          + 'You can archive it later from Setup → Games.',
+      yes: 'Archive now',
+      no: 'Keep it in the list'
+    });
+    if (!archiveNow) return;
+    await api(`/api/games/${encodeURIComponent(id)}/archive`, {
+      method: 'POST', body: JSON.stringify({ archived: true })
+    });
+    S.games = await api('/api/games');
+    renderGameList();
+    toast('Archived — find it under "Show archived"', 'ok');
   } catch (e) { toast(e.message, 'err'); }
 }

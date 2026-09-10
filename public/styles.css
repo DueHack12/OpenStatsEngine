@@ -350,3 +350,27 @@ button.tiny{
   border-radius:5px;padding:1px 7px;font-size:11px;font-weight:700;cursor:pointer;
 }
 button.tiny:hover{color:var(--fg)}
+
+/* ---------- ask dialog ---------- */
+/* A real choice needs a real dialog: confirm() gives you OK/Cancel, which
+   cannot say "Archive now" against "Keep it in the list". */
+#ask{position:fixed;inset:0;z-index:400;display:flex;align-items:center;justify-content:center;
+  background:rgba(6,8,12,.72);padding:16px}
+#ask.hidden{display:none !important}
+.ask-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:18px 20px;max-width:460px;width:100%;box-shadow:0 18px 50px rgba(0,0,0,.6)}
+.ask-title{font-size:17px;font-weight:800;margin-bottom:6px}
+.ask-body{color:var(--dim);font-size:13.5px;line-height:1.5}
+.ask-acts{display:flex;gap:8px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap}
+.ask-acts button{border:1px solid var(--line);background:var(--panel2);border-radius:9px;
+  padding:10px 16px;cursor:pointer;font-weight:700;min-height:var(--tap)}
+.ask-acts button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.ask-acts button:hover{border-color:var(--accent)}
+
+/* ---------- archived games ---------- */
+.archbar{margin-bottom:8px}
+button.linkish{background:none;border:none;color:var(--accent);cursor:pointer;
+  font-weight:700;font-size:13px;padding:4px 0;text-decoration:underline}
+.grow.arch{opacity:.62}
+.archtag{margin-left:8px;font-size:10px;font-weight:800;letter-spacing:1px;
+  color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:1px 5px;vertical-align:middle}

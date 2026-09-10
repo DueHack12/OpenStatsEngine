@@ -70,7 +70,9 @@ const scorebot = new ScorebotClient({
   })
 });
 
-const ctx = { store, broadcast, scorebot, DATA, PUBLIC };
+// `port` is mutable: a busy port falls back to the next free one, and the
+// monitor page shows whichever we actually ended up on.
+const ctx = { store, broadcast, scorebot, DATA, PUBLIC, port: PORT };
 registerRoutes(route, ctx);
 
 /* ---------------- static ---------------- */
@@ -181,6 +183,9 @@ const server = http.createServer(async (req, res) => {
   }
 
   // friendly URLs for the two front-ends
+  if (req.method === 'GET' && (pathname === '/monitor' || pathname === '/feed')) {
+    if (serveStatic(req, res, '/monitor.html')) return;
+  }
   if (req.method === 'GET' && (pathname === '/announcer' || pathname === '/booth')) {
     if (serveStatic(req, res, '/announcer.html')) return;
   }
@@ -209,6 +214,7 @@ server.on('error', (e) => {
   }
   const next = PORT + attempts;
   console.log(`  Port ${busy} is already in use${RESERVED[busy] ? ` (that is ${RESERVED[busy]})` : ''} — trying ${next}…`);
+  ctx.port = next;
   server.listen(next, HOST);
 });
 
@@ -241,6 +247,7 @@ server.listen(PORT, HOST, () => {
   }
   console.log(`\n  Stats entry   : ${base}/`);
   console.log(`  Announcer view: ${base}/announcer`);
+  console.log(`  Feed monitor  : ${base}/monitor`);
   console.log(`\n  Open the Network URL on any phone or tablet on this Wi-Fi.`);
   console.log(`  Press Ctrl+C to stop.\n${line}\n`);
 

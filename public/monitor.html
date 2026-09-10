@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>OSE — Feed Monitor</title>
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/monitor.css">
+</head>
+<body class="mon">
+
+<header id="topbar">
+  <div class="brand">OSE</div>
+  <div class="montitle">Feed Monitor</div>
+  <div class="grow"></div>
+  <label class="inline pausewrap"><input type="checkbox" id="mon-pause"> Pause</label>
+  <div id="conn" class="conn" title="Connection to this server">●</div>
+</header>
+
+<div id="mon-wrap">
+
+  <!-- state of the link itself -->
+  <section class="card" id="card-link">
+    <div class="cardhead"><h2>Scorebot Link</h2><span id="link-pill" class="pill">…</span></div>
+    <div class="kv" id="link-kv"></div>
+  </section>
+
+  <!-- the game as OSE currently understands it -->
+  <section class="card" id="card-game">
+    <div class="cardhead"><h2>Game</h2><span id="game-name" class="dimtxt"></span></div>
+    <div class="bigrow">
+      <div class="big"><span id="g-away-ab">—</span><b id="g-away">0</b></div>
+      <div class="big mid"><b id="g-clock">--:--</b><span id="g-period">—</span></div>
+      <div class="big"><span id="g-home-ab">—</span><b id="g-home">0</b></div>
+    </div>
+    <div class="kv" id="game-kv"></div>
+  </section>
+
+  <!-- what OSE read out of the last message -->
+  <section class="card">
+    <div class="cardhead"><h2>What OSE Read</h2>
+      <span class="dimtxt">from the last message</span></div>
+    <div class="tblwrap"><table class="tbl" id="parsed"><tbody></tbody></table></div>
+  </section>
+
+  <!-- the message itself -->
+  <section class="card">
+    <div class="cardhead"><h2>Raw Message</h2>
+      <span class="dimtxt" id="raw-note"></span></div>
+    <pre class="out" id="raw"></pre>
+  </section>
+
+  <!-- what actually got written to the log -->
+  <section class="card">
+    <div class="cardhead"><h2>Recently Logged</h2>
+      <span class="dimtxt" id="log-note"></span></div>
+    <div id="recent" class="recent"></div>
+  </section>
+
+</div>
+
+<script src="/monitor.js" type="module"></script>
+</body>
+</html>

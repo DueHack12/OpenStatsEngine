@@ -10,7 +10,7 @@
 > What that means for you:
 >
 > - **It has run a handful of live games, not a season.** The test suite is
->   thorough (556 tests on a fresh clone, 568 with real exports in place), but
+>   thorough (559 tests on a fresh clone, 571 with real exports in place), but
 >   passing tests are not the same as a Friday night with a scoreboard operator,
 >   and the first real match still turned up three feed-parsing bugs the
 >   emulator never triggered. Expect to find more in a sport it has not seen.
@@ -573,6 +573,29 @@ instant the official signals, seconds before the play is entered — so treat it
 as a prompt, not an alarm: it means *the scoring play has not been logged yet*,
 or, if it reads negative, that something was logged twice or to the wrong team.
 
+### Feed monitor
+
+**`/monitor`** (also `/feed`, and the **📡 Feed** link in the top bar) is a
+read-only page for watching the scoreboard link during a game:
+
+- **Scorebot Link** — connected or not, transport, topic, message count, how
+  long since the last message, and this server's own addresses and port.
+- **Game** — the clock and score as OSE currently has them, whether the clock
+  and period come from the board or are being entered by hand, and the board's
+  own score, shots and corners beside them.
+- **What OSE Read** — every field pulled out of the last message. A field the
+  board does not send is left out; one switched to **Manual** is shown greyed
+  and labelled, so a gap is never a mystery.
+- **Raw Message** — the message itself, keys sorted, with space-padded fields
+  rendered as `"···"  (blank)`. Boards pad unused fields with spaces rather
+  than omitting them, and telling "sends nothing" apart from "we cannot read
+  it" is usually the whole diagnosis.
+- **Recently Logged** — the last dozen entries actually written to the game
+  log, newest first.
+
+It polls one endpoint once a second and has a **Pause** switch for reading a
+message without it moving.
+
 ### If the feed drops
 
 A dead feed is silent by nature: no events arrive, so without something watching
@@ -610,8 +633,16 @@ down.
 
 ### Notes
 
-- Only genuine changes are written to the log, so it records clock transitions
-  rather than a per-second firehose.
+- **A running clock writes almost nothing.** A board and a locally-projected
+  clock always disagree slightly, and logging a correction each time turns the
+  game log into a per-second firehose — one real match finished with 5458
+  `clock_set` events against 18 actual entries, 99% of the file. A genuine jump
+  (a referee resetting the clock) is written the instant it happens, judged
+  against the board's own previous reading rather than against our projection,
+  since drift accumulates until it *looks* like a jump. Ordinary drift is
+  re-synced at most every ten seconds. Ten minutes of 1 Hz messages now costs
+  one event. Tunable with `clockJumpMs` (default 3000) and `clockResyncMs`
+  (default 10000).
 - Sub-second drift between the feed and the local clock is ignored
   (`toleranceMs`, default 1200).
 - **Test Live Feed** does the same thing as Parse Sample but connects to the URL
@@ -759,7 +790,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 556 tests on a fresh clone (568 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 559 tests on a fresh clone (571 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation, field-source gating, feed-loss and stalled-feed detection,
 board-vs-entered score separation, baseball bases/count, per-sport scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

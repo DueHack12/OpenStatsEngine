@@ -231,6 +231,18 @@ console.log('\n== errors are sane ==');
   try { await j('/api/games/nope/state'); ok('404s unknown game', false); }
   catch (e) { ok('404s unknown game', /404/.test(e.message)); }
 
+  console.log('\n== monitor endpoint ==');
+  {
+    const m = await j('/api/monitor');
+    ok('reports this server\'s addresses', Array.isArray(m.server.addresses));
+    ok('and the port it is really on', m.server.port > 0, String(m.server.port));
+    ok('carries the feed block', !!m.feed && 'connected' in m.feed);
+    ok('and the active game', !!m.game, m.game ? m.game.matchup : 'none');
+    ok('with a recent-log list', Array.isArray(m.game.recent));
+    ok('and the clock as displayed', typeof m.game.clock === 'string', m.game.clock);
+    ok('the monitor page is served', (await fetch(BASE + '/monitor')).ok);
+  }
+
   console.log(`\n${'='.repeat(50)}\n  ${pass} passed, ${fail} failed\n${'='.repeat(50)}\n`);
   process.exit(fail ? 1 : 0);
 })().catch((e) => { console.error('\nFATAL:', e.message); process.exit(1); });

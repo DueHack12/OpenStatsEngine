@@ -601,11 +601,41 @@ export function applyFeed(store, gameId, feed, cfg = {}) {
       data: { period: feed.period, ms: on('clock') ? (feed.clockMs ?? undefined) : undefined }
     }));
   }
-  if (on('clock') && feed.clockMs != null && Math.abs(feed.clockMs - cur) > tol) {
-    written.push(store.appendEvent(gameId, {
-      type: 'clock_set', source: 'scorebot',
-      period: feed.period ?? st.period, clockMs: feed.clockMs, data: { ms: feed.clockMs }
-    }));
+  /*
+   * A running clock disagreeing with ours by a second is normal — the board
+   * sends whole seconds and we project between messages. Logging a correction
+   * every time turns the game log into a per-second firehose: one real match
+   * finished with 5458 clock_set events against 18 actual entries, 99% of the
+   * file, which is slower to replay and impossible to read.
+   *
+   * So: a real jump is written at once, because that is a referee resetting
+   * the clock and it must be exact. Ordinary drift is re-synced at most every
+   * few seconds, which is far tighter than anyone can see on a graphic.
+   */
+  if (on('clock') && feed.clockMs != null) {
+    const off = Math.abs(feed.clockMs - cur);
+    const jump = cfg.clockJumpMs ?? 3000;
+    const resyncEvery = cfg.clockResyncMs ?? 10000;
+    const lastSet = [...events].reverse().find((e) => e.type === 'clock_set' && e.source === 'scorebot');
+    const sinceLast = lastSet?.ts ? Date.now() - new Date(lastSet.ts).getTime() : Infinity;
+
+    // A jump is judged against the board's own previous reading, not against
+    // our projection. Drift accumulates until it looks like a jump, so using
+    // the projection would let a slowly-diverging clock trip the "write it
+    // now" path every few seconds and rebuild the firehose this replaced.
+    let discontinuity = true;
+    if (lastSet && Number.isFinite(sinceLast) && lastSet.clockMs != null) {
+      const ran = st.running ? sinceLast : 0;
+      const expected = st.countsDown ? lastSet.clockMs - ran : lastSet.clockMs + ran;
+      discontinuity = Math.abs(feed.clockMs - expected) > jump;
+    }
+
+    if (discontinuity || (off > tol && sinceLast >= resyncEvery)) {
+      written.push(store.appendEvent(gameId, {
+        type: 'clock_set', source: 'scorebot',
+        period: feed.period ?? st.period, clockMs: feed.clockMs, data: { ms: feed.clockMs }
+      }));
+    }
   }
   if (on('running') && feed.running != null && feed.running !== st.running) {
     written.push(store.appendEvent(gameId, {

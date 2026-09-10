@@ -252,14 +252,6 @@ function applyState() {
     paintBoardScore(box, st, side, t.points);
   }
   $('#sb-period').textContent = `${st.clock.periodLabel} ${S.sport.periods.label}`.toUpperCase();
-  const maxPeriod = S.sport.periods.count + (S.sport.periods.maxOvertimes ?? 3);
-  const prevBtn = $('[data-period="prev"]'), nextBtn = $('[data-period="next"]');
-  const periodFed = !!st.feed?.owns?.period;
-  if (prevBtn) prevBtn.disabled = periodFed || st.clock.period <= 1;
-  if (nextBtn) {
-    nextBtn.disabled = periodFed || st.clock.period >= maxPeriod;
-    nextBtn.title = nextBtn.disabled ? `Capped at ${S.sport.periods.label.toLowerCase()} ${maxPeriod}` : '';
-  }
   $('#btn-clock').textContent = st.clock.running ? '❚❚ Stop' : '▶ Start';
   $('#btn-clock').classList.toggle('on', st.clock.running);
   $('#sb-clock').classList.toggle('running', st.clock.running);
@@ -281,6 +273,22 @@ function applyState() {
     : null;
 
   applyFeedLocks();
+
+  // After applyFeedLocks, which sets `disabled` from feed ownership alone and
+  // would otherwise re-enable ◂Per at the first period. Both the range and the
+  // ownership matter, so this has the last word.
+  const maxPeriod = S.sport.periods.count + (S.sport.periods.maxOvertimes ?? 3);
+  const prevBtn = $('[data-period="prev"]'), nextBtn = $('[data-period="next"]');
+  const periodFed = !!st.feed?.owns?.period;
+  if (prevBtn) prevBtn.disabled = periodFed || st.clock.period <= 1;
+  if (nextBtn) {
+    nextBtn.disabled = periodFed || st.clock.period >= maxPeriod;
+    if (!periodFed) {
+      nextBtn.title = nextBtn.disabled
+        ? `Capped at ${S.sport.periods.label.toLowerCase()} ${maxPeriod}` : '';
+    }
+  }
+
   feedAlert(st.feed);
   renderTeamSwitch();
   renderDiamond();
@@ -1338,9 +1346,26 @@ function renderSourceToggles() {
     const seg = el('div', 'seg');
     for (const mode of ['scorebot', 'manual']) {
       const b = el('button', 'segbtn' + (sources[f.key] === mode ? ' on' : ''), mode === 'scorebot' ? 'Scorebot' : 'Manual');
-      b.onclick = () => {
+      b.onclick = async () => {
+        const prev = sources[f.key];
+        if (prev === mode) return;
         sources[f.key] = mode;
         renderSourceTogglesState();
+        // Saved on the spot rather than waiting for Save Settings. These are
+        // switches, and an unsaved switch that reverts on the next reload is
+        // worse than no switch at all.
+        try {
+          S.cfg = await api('/api/config', {
+            method: 'POST',
+            body: JSON.stringify({ scorebot: { sources: { [f.key]: mode } } })
+          });
+          toast(`${f.label}: ${mode === 'manual' ? 'Manual' : 'Scorebot'}`, 'ok');
+          if (S.gameId) await refreshState();   // lock or free the controls now
+        } catch (e) {
+          sources[f.key] = prev;                 // put the switch back
+          renderSourceTogglesState();
+          toast(`Could not save: ${e.message}`, 'err');
+        }
       };
       seg.appendChild(b);
     }

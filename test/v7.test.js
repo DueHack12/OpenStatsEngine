@@ -7,6 +7,7 @@ import { deriveGame } from '../src/engine.js';
 import { normalizeFeed, applyFeed, FEED_FIELDS } from '../src/integrations/scorebot.js';
 import * as vmix from '../src/vmix.js';
 import { getSport } from '../src/sports/index.js';
+import { clockFromEvents } from '../src/clock.js';
 
 let pass = 0, fail = 0;
 const eq = (l, got, want) => {
@@ -147,6 +148,51 @@ eq('naming the keeper once is enough', gk.ga, 3);
 ok('and marks them a keeper', gk.is_goalie);
 eq('the current keeper is exposed to the console', g2.goalies.away, A[0].id);
 eq('with none named for the other side', g2.goalies.home, null);
+
+/* ------------------------------------------------------------------ *
+ * A running clock must not write an event per message.
+ *
+ * One real 80-minute match finished with 5458 clock_set events against 18
+ * actual entries — 99% of the log — because the board counted down while the
+ * sport was configured to count up, so every single message looked like a
+ * correction. The direction is fixed, but the writer should not depend on
+ * that being right to stay quiet.
+ * ------------------------------------------------------------------ */
+console.log('\n== a running clock does not flood the log ==');
+
+const realNow = Date.now;
+try {
+  let NOW = realNow();
+  Date.now = () => NOW;
+
+  const r2 = fs.mkdtempSync(path.join(os.tmpdir(), 'ose-v7-clock-'));
+  const s2 = new Store(r2);
+  s2.saveTeam({ name: 'Home', abbrev: 'HOM' });
+  s2.saveTeam({ name: 'Away', abbrev: 'AWY' });
+  const GC = s2.createGame({ sport: 'soccer', homeTeamId: 'home', awayTeamId: 'away', date: '2026-09-10' }).id;
+  const soccer = getSport('soccer');
+
+  const kinds = {};
+  for (let i = 0; i < 600; i++) {                       // ten minutes at 1 Hz
+    const st = clockFromEvents(s2.effectiveEvents(GC), soccer, {});
+    for (const e of applyFeed(s2, GC, { clockMs: (40 * 60 - i) * 1000, running: true, period: 1 }, st, () => true))
+      kinds[e.type] = (kinds[e.type] || 0) + 1;
+    NOW += 1000;                                        // a real second passes
+  }
+  const sets = kinds.clock_set || 0;
+  ok('ten minutes of 1 Hz messages writes a handful, not hundreds', sets <= 5, `${sets} clock_set`);
+  eq('and the clock is started exactly once', kinds.clock_start, 1);
+
+  // A referee resetting the clock is a real correction and must land at once.
+  const st2 = clockFromEvents(s2.effectiveEvents(GC), soccer, {});
+  const jumped = applyFeed(s2, GC, { clockMs: 5 * 60 * 1000, running: true, period: 1 }, st2, () => true);
+  ok('a large jump is written immediately', jumped.some((e) => e.type === 'clock_set'),
+    jumped.map((e) => e.type).join(',') || 'nothing');
+
+  fs.rmSync(r2, { recursive: true, force: true });
+} finally {
+  Date.now = realNow;
+}
 
 fs.rmSync(root, { recursive: true, force: true });
 console.log(`\n${'='.repeat(52)}\n  ${pass} passed, ${fail} failed\n${'='.repeat(52)}\n`);

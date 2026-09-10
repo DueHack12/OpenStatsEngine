@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import { deriveGame } from './engine.js';
 import { announcerView } from './announcer.js';
 import { getSport, sportManifest, listSports } from './sports/index.js';
@@ -13,6 +14,15 @@ import { FEED_FIELDS } from './integrations/scorebot.js';
 
 const raw = (body, type, filename, status = 200) => ({ __raw: true, body, type, filename, status });
 const bad = (msg, status = 400) => { const e = new Error(msg); e.status = status; throw e; };
+
+/** Every non-loopback IPv4 address, so the monitor can show where it lives. */
+function localAddresses() {
+  const out = [];
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const n of list || []) if (n.family === 'IPv4' && !n.internal) out.push(n.address);
+  }
+  return out;
+}
 
 export function registerRoutes(route, ctx) {
   const { store, broadcast, scorebot } = ctx;
@@ -513,6 +523,73 @@ export function registerRoutes(route, ctx) {
 
   /* ---------------- scorebot ---------------- */
   route('GET', '/api/scorebot/status', () => ({ ...scorebot.status, config: store.config.scorebot }));
+
+  /**
+   * Everything the monitor page needs in one call: what the feed is sending,
+   * what we made of it, and what has actually been written to the log. Kept as
+   * a single endpoint so the page can poll once a second without a thundering
+   * herd of requests during a game.
+   */
+  route('GET', '/api/monitor', ({ query }) => {
+    const st = scorebot.status;
+    const cfg = store.config.scorebot || {};
+    const gameId = query.game || store.config.activeGameId || null;
+
+    let game = null;
+    if (gameId && store.getGame(gameId)) {
+      const g = deriveGame(store, gameId);
+      game = {
+        id: gameId,
+        sport: g.sportName,
+        matchup: `${g.teams.away.abbrev} at ${g.teams.home.abbrev}`,
+        period: g.clock.period,
+        periodLabel: g.clock.periodLabel,
+        clock: g.clock.clock,
+        clockMs: g.clock.clockMs,
+        running: g.clock.running,
+        score: { home: g.teams.home.points, away: g.teams.away.points },
+        officialScore: g.officialScore,
+        boardStats: g.boardStats,
+        feed: feedOwnership(),
+        counts: g.counts,
+        // Newest first: the monitor is read at a glance, mid-game.
+        recent: (g.timeline || []).slice(-12).reverse()
+      };
+    }
+
+    // Which raw keys the reader actually consumed, so an unread field on a new
+    // board is obvious rather than mysteriously missing.
+    const readFrom = {};
+    if (st.lastRaw && typeof st.lastRaw === 'object') {
+      for (const [k, v] of Object.entries(st.lastRaw)) {
+        if (typeof v === 'string' && v.trim() === '') readFrom[k] = 'blank';
+      }
+    }
+
+    return {
+      now: localStamp(),
+      server: { addresses: localAddresses(), port: ctx.port ?? null },
+      feed: {
+        connected: !!st.connected,
+        mode: st.mode,
+        url: cfg.url || null,
+        topic: st.topic || null,
+        messages: st.messages || 0,
+        lastMessage: st.lastMessage || null,
+        quietMs: st.lastMessage ? Date.now() - new Date(st.lastMessage).getTime() : null,
+        stalled: !!st.stalled,
+        droppedAt: st.droppedAt || null,
+        dropReason: st.dropReason || null,
+        lastError: st.lastError || null,
+        staleMs: cfg.staleMs == null ? 5000 : cfg.staleMs
+      },
+      raw: st.lastRaw ?? null,
+      rawText: st.lastRawText ?? null,
+      normalized: st.lastNormalized ?? null,
+      blankKeys: Object.keys(readFrom),
+      game
+    };
+  });
 
   /**
    * Connect / disconnect. Both persist `enabled`, because a stop that does not

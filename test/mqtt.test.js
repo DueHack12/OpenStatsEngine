@@ -179,14 +179,18 @@ const SPORTZCAST = JSON.stringify({
   eq('"N"', run('N'), false);
   eq('"Running"', run('Running'), true);
   eq('"Stopped"', run('Stopped'), false);
+  // Sportzcast's own markers, confirmed against a live ScoreConnect III feed:
+  // ClockStatus "R" while the clock runs, "S" when it is stopped. These were
+  // treated as unknown until a real board showed what they mean.
+  eq('"R" runs (Sportzcast)', run('R'), true);
+  eq('"S" stops (Sportzcast)', run('S'), false);
   // The important one: never guess "stopped" from something unrecognised, or a
   // running clock silently freezes and time of possession is wrong all night.
-  eq('unrecognised "R" -> unknown, not stopped', run('R'), undefined);
-  eq('unrecognised "S" -> unknown, not stopped', run('S'), undefined);
   eq('unrecognised junk -> unknown', run('XYZ'), undefined);
+  eq('a single unknown letter -> unknown', run('Q'), undefined);
   eq('blank -> unknown', run(' '), undefined);
   ok('an unreadable status is reported so it can be mapped',
-    normalizeFeed({ ClockStatus: 'R' })._unreadRunning === 'R');
+    normalizeFeed({ ClockStatus: 'ZZ' })._unreadRunning === 'ZZ');
 
   console.log('\n== a venue can teach it a marker without a code change ==');
   eq('runningValues true', normalizeFeed({ ClockStatus: 'R' }, {}, { runningValues: { true: ['R'], false: ['S'] } }).running, true);

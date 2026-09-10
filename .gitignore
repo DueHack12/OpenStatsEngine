@@ -8,6 +8,7 @@ _backups/
 # "Hudl Files/" subfolder, which the old root-anchored patterns walked straight
 # past. test/fixtures/ is excluded from these rules and stays committed.
 Hudl Files/
+Rosters/
 HUDL SEASON FILES/
 HUDL*.txt
 HUDL*.html

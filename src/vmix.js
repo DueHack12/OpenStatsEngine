@@ -107,6 +107,16 @@ export function scoreboardXml(g) {
     row.ScoreMismatch = (g.officialScore.home != null && g.officialScore.home !== h.points) ||
                         (g.officialScore.away != null && g.officialScore.away !== a.points);
   }
+  // Counting stats the scoreboard keeps itself — shots on goal, corners,
+  // saves. Separate from the logged totals so a title can bind whichever the
+  // crew trusts for that sport.
+  if (g.boardStats) {
+    for (const [side, b] of [['Home', g.boardStats.home], ['Away', g.boardStats.away]]) {
+      row[`Board${side}SOG`] = b.sog ?? '';
+      row[`Board${side}Corners`] = b.corners ?? '';
+      row[`Board${side}Saves`] = b.saves ?? '';
+    }
+  }
   // score by period
   for (let p = 1; p <= Math.max(g.clock.periodCount, g.clock.period); p++) {
     row[`HomeP${p}`] = h.byPeriod?.[p] ?? 0;

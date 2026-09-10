@@ -904,12 +904,31 @@ function renderStats() {
     }
     cmp += '</table>';
 
+    // What the scoreboard itself is counting. Shown as its own block rather
+    // than mixed into the logged totals, so it is always clear which number
+    // came from where when the two disagree.
+    let bs = '';
+    const b = st.boardStats;
+    if (b) {
+      const rows = [['sog', 'Shots on Goal'], ['corners', 'Corners'], ['saves', 'Saves']]
+        .filter(([k]) => b.home[k] != null || b.away[k] != null);
+      if (rows.length) {
+        bs = '<div class="tbltitle">From the Scoreboard</div><table class="cmp">';
+        bs += `<tr><td><b>${esc(st.teams.away.abbrev)}</b></td><td></td><td><b>${esc(st.teams.home.abbrev)}</b></td></tr>`;
+        for (const [k, label] of rows) {
+          bs += `<tr><td>${b.away[k] ?? '—'}</td><td>${esc(label)}</td><td>${b.home[k] ?? '—'}</td></tr>`;
+        }
+        bs += `<tr><td colspan="3" style="text-align:center;color:var(--dim);font-size:11.5px">`
+           + `Counted by the scoreboard, not from logged plays</td></tr></table>`;
+      }
+    }
+
     const dr = `<div class="tbltitle">Situational</div><table class="cmp">
       <tr><td>${esc(st.droughts.away.display)}</td><td>Since last score</td><td>${esc(st.droughts.home.display)}</td></tr>
       <tr><td>${st.runs.best.away}</td><td>Biggest run</td><td>${st.runs.best.home}</td></tr>
       <tr><td colspan="3" style="text-align:center;color:var(--dim);font-size:11.5px">
         Elapsed ${esc(st.situation.elapsedDisplay)} · ${st.counts.effective} entries logged</td></tr></table>`;
-    body.innerHTML = ls + cmp + dr;
+    body.innerHTML = ls + cmp + bs + dr;
     return;
   }
 

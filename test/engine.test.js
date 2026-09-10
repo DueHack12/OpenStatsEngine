@@ -86,8 +86,15 @@ console.log('\n== elapsed across periods ==');
 const st = clockFromEvents(store.effectiveEvents(G), getSport('football'), {});
 eq('Q1 12:00 -> 0 elapsed', elapsedGameMs(st, 12 * 60000, 1), 0);
 eq('Q3 6:00 -> 30:00 elapsed', elapsedGameMs(st, 6 * 60000, 3), 30 * 60000);
-eq('countsUp sport (soccer) 2nd half', elapsedGameMs(
-  clockFromEvents([], getSport('soccer'), {}), 10 * 60000, 2), 50 * 60000);
+// Soccer counts DOWN under NFHS (and on the ScoreConnect board), so 10:00 on
+// the clock in the second half is 30 minutes played in that half, not 10.
+const soccerSt = clockFromEvents([], getSport('soccer'), {});
+eq('soccer counts down', soccerSt.countsDown, true);
+eq('counts-down 2nd half', elapsedGameMs(soccerSt, 10 * 60000, 2), 70 * 60000);
+// The counting-up branch still matters — keep it covered independently of
+// whichever sports happen to be configured that way.
+eq('counts-up 2nd half', elapsedGameMs(
+  { ...soccerSt, countsDown: false }, 10 * 60000, 2), 50 * 60000);
 
 console.log('\n== undo / correct ==');
 const target = store.readEvents(G).find((e) => e.action === 'rush' && e.data?.td);

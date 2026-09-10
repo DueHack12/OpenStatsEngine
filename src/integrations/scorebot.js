@@ -30,7 +30,10 @@ export const FEED_FIELDS = [
   { key: 'auxClock', label: 'Play / Shot Clock', hint: 'football play clock, basketball shot clock' },
   { key: 'down', label: 'Down', hint: 'football' },
   { key: 'distance', label: 'Distance to Go', hint: 'football' },
-  { key: 'ballOn', label: 'Ball On', hint: 'football yard line' }
+  { key: 'ballOn', label: 'Ball On', hint: 'football yard line' },
+  { key: 'shots', label: 'Shots on Goal', hint: 'soccer / hockey / lacrosse — both sides' },
+  { key: 'corners', label: 'Corner Kicks', hint: 'soccer — both sides' },
+  { key: 'saves', label: 'Saves', hint: 'soccer / hockey / lacrosse — both sides' }
 ];
 
 /** Fields most scoreboards do send, versus the ones usually entered by hand. */
@@ -38,19 +41,29 @@ export const DEFAULT_SOURCES = {
   period: 'scorebot', clock: 'scorebot', running: 'scorebot',
   homeScore: 'scorebot', awayScore: 'scorebot', possession: 'scorebot',
   auxClock: 'scorebot', down: 'scorebot', distance: 'scorebot', ballOn: 'scorebot',
+  shots: 'scorebot', corners: 'scorebot', saves: 'scorebot',
   half: 'manual', outs: 'manual', balls: 'manual', strikes: 'manual', bases: 'manual'
 };
 
 const CANDIDATES = {
   // Sportzcast ScoreConnect III publishes PascalCase keys ("Quarter", "Clock",
   // "GuestScore"), so those names sit alongside the generic ones.
-  period: ['period', 'Quarter', 'quarter', 'inning', 'Inning', 'currentPeriod', 'periodNumber', 'data.period'],
+  period: ['period', 'Period', 'Quarter', 'quarter', 'inning', 'Inning', 'Half', 'half_number',
+    'currentPeriod', 'periodNumber', 'data.period'],
   clock: ['clock', 'Clock', 'gameClock', 'displayClock', 'time', 'timeRemaining', 'data.clock'],
   running: ['running', 'clockRunning', 'ClockStatus', 'isRunning', 'clockState', 'data.running'],
   homeScore: ['homeScore', 'HomeScore', 'home.score', 'scores.home', 'homeTeamScore', 'data.homeScore'],
   awayScore: ['awayScore', 'AwayScore', 'GuestScore', 'VisitorScore', 'away.score', 'scores.away',
     'awayTeamScore', 'visitorScore', 'data.awayScore'],
   possession: ['possession', 'possessionTeam', 'ballPossession', 'data.possession'],
+  homeShots: ['homeShots', 'HomeShots', 'homeSOG', 'HomeSOG', 'homeShotsOnGoal', 'data.homeShots'],
+  awayShots: ['awayShots', 'AwayShots', 'GuestShots', 'VisitorShots', 'awaySOG', 'GuestSOG',
+    'awayShotsOnGoal', 'data.awayShots'],
+  homeCorners: ['homeCorners', 'HomeCorners', 'HomeCornerKicks', 'homeCornerKicks', 'data.homeCorners'],
+  awayCorners: ['awayCorners', 'AwayCorners', 'GuestCornerKicks', 'GuestCorners', 'VisitorCorners',
+    'awayCornerKicks', 'data.awayCorners'],
+  homeSaves: ['homeSaves', 'HomeSaves', 'data.homeSaves'],
+  awaySaves: ['awaySaves', 'AwaySaves', 'GuestSaves', 'VisitorSaves', 'data.awaySaves'],
   // Sportzcast flags possession per side with a marker character rather than a name
   homePossession: ['HomePossession', 'homePossession'],
   awayPossession: ['GuestPossession', 'VisitorPossession', 'guestPossession', 'awayPossession'],
@@ -112,7 +125,11 @@ export function flattenPaths(obj, prefix = '', out = {}, depth = 0) {
 export function discoverPaths(raw) {
   const flat = flattenPaths(raw);
   const suggestions = {};
-  for (const { key } of FEED_FIELDS) {
+  // Drive this off CANDIDATES rather than FEED_FIELDS: a few fields are a
+  // single on/off switch covering a per-side pair (shots, corners, saves are
+  // read as homeShots/awayShots and so on), so the two lists do not match
+  // one-for-one and the toggle key itself has no candidates of its own.
+  for (const key of Object.keys(CANDIDATES)) {
     const wants = CANDIDATES[key].map((c) => c.split('.').pop().toLowerCase());
     const scored = [];
     for (const [path, value] of Object.entries(flat)) {
@@ -142,7 +159,9 @@ export function normalizeFeed(raw, fieldMap = {}, opts = {}) {
   fieldMap = fieldMap || {};
   const map = {};
   for (const { key } of [...FEED_FIELDS, { key: 'auxRunning' },
-    { key: 'homePossession' }, { key: 'awayPossession' }]) {
+    { key: 'homePossession' }, { key: 'awayPossession' },
+    { key: 'homeShots' }, { key: 'awayShots' }, { key: 'homeCorners' },
+    { key: 'awayCorners' }, { key: 'homeSaves' }, { key: 'awaySaves' }]) {
     const custom = fieldMap[key];
     map[key] = custom
       ? (Array.isArray(custom) ? custom : [custom, ...CANDIDATES[key]])
@@ -165,6 +184,12 @@ export function normalizeFeed(raw, fieldMap = {}, opts = {}) {
     balls: toInt(pick(raw, map.balls)),
     strikes: toInt(pick(raw, map.strikes)),
     bases: normBases(pick(raw, map.bases)),
+    homeShots: toInt(pick(raw, map.homeShots)),
+    awayShots: toInt(pick(raw, map.awayShots)),
+    homeCorners: toInt(pick(raw, map.homeCorners)),
+    awayCorners: toInt(pick(raw, map.awayCorners)),
+    homeSaves: toInt(pick(raw, map.homeSaves)),
+    awaySaves: toInt(pick(raw, map.awaySaves)),
     auxClockMs: auxMs(pick(raw, map.auxClock)),
     auxRunning: parseRunning(pick(raw, map.auxRunning), opts.runningValues),
     // kept for diagnostics: a status the feed sent that we could not read
@@ -202,8 +227,12 @@ function sidePossession(raw, map) {
 
 function toInt(v) { if (v == null || v === '') return undefined; const n = parseInt(v, 10); return isFinite(n) ? n : undefined; }
 
-const RUN_TRUE = ['true', '1', 'y', 'yes', 'on', 'run', 'running', 'active', 'started', 'go'];
-const RUN_FALSE = ['false', '0', 'n', 'no', 'off', 'stop', 'stopped', 'halt', 'halted', 'paused', 'inactive'];
+// 'r'/'s' are Sportzcast's: ClockStatus "R" while the clock runs, "S" when it
+// is stopped. Without them a running clock fell through to movement inference,
+// which works but lags a second behind what the board already knows.
+const RUN_TRUE = ['true', '1', 'y', 'yes', 'on', 'run', 'running', 'active', 'started', 'go', 'r'];
+const RUN_FALSE = ['false', '0', 'n', 'no', 'off', 'stop', 'stopped', 'halt', 'halted', 'paused',
+  'inactive', 's'];
 
 /**
  * Read a clock run/stop flag, returning **undefined** for anything we do not
@@ -622,6 +651,32 @@ export function applyFeed(store, gameId, feed, cfg = {}) {
       written.push(store.appendEvent(gameId, {
         type: 'situation_set', source: 'scorebot',
         period: feed.period ?? st.period, clockMs: feed.clockMs ?? cur, data: sit
+      }));
+    }
+  }
+
+  // Counting stats the board keeps for us — shots on goal, corners, saves.
+  // Kept as the board's own figures rather than folded into the team totals:
+  // four shots on the board cannot be turned into four shot events, and
+  // overwriting a total the operator has been logging by hand would lose work.
+  const board = {};
+  for (const [field, keys] of [
+    ['shots', ['homeShots', 'awayShots']],
+    ['corners', ['homeCorners', 'awayCorners']],
+    ['saves', ['homeSaves', 'awaySaves']]
+  ]) {
+    if (!on(field)) continue;
+    const [hk, ak] = keys;
+    if (feed[hk] != null) board[hk] = feed[hk];
+    if (feed[ak] != null) board[ak] = feed[ak];
+  }
+  if (Object.keys(board).length) {
+    const last = [...events].reverse().find((e) => e.type === 'board_stats');
+    const changed = !last || Object.entries(board).some(([k, v]) => last.data?.[k] !== v);
+    if (changed) {
+      written.push(store.appendEvent(gameId, {
+        type: 'board_stats', source: 'scorebot',
+        period: feed.period ?? st.period, clockMs: feed.clockMs ?? cur, data: board
       }));
     }
   }

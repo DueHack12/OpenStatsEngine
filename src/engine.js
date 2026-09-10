@@ -124,6 +124,23 @@ export function deriveGame(store, gameId, { now = Date.now() } = {}) {
       applySituation(acc, ev.data || {});
     } else if (ev.type === 'score_official') {
       acc.officialScore = { home: ev.data?.home ?? null, away: ev.data?.away ?? null, at: ev.tsLocal };
+    } else if (ev.type === 'board_stats') {
+      // Merged rather than replaced: a board that sends corners but not saves
+      // must not blank the saves it sent a moment ago.
+      const d = ev.data || {};
+      acc.boardStats = {
+        home: {
+          sog: d.homeShots ?? acc.boardStats?.home.sog ?? null,
+          corners: d.homeCorners ?? acc.boardStats?.home.corners ?? null,
+          saves: d.homeSaves ?? acc.boardStats?.home.saves ?? null
+        },
+        away: {
+          sog: d.awayShots ?? acc.boardStats?.away.sog ?? null,
+          corners: d.awayCorners ?? acc.boardStats?.away.corners ?? null,
+          saves: d.awaySaves ?? acc.boardStats?.away.saves ?? null
+        },
+        at: ev.tsLocal
+      };
     } else if (ev.type && ev.type !== 'stat') {
       const line = describeSystem(ev, clockState, meta);
       if (line) acc.timeline.push(line);
@@ -222,6 +239,13 @@ export function deriveGame(store, gameId, { now = Date.now() } = {}) {
       elapsedDisplay: fmtDuration(curElapsed)
     },
     officialScore: acc.officialScore || null,
+    boardStats: acc.boardStats || null,
+    // Who is in goal, per side. The engine has always tracked this so goals
+    // against and saves attach to the right keeper without re-picking them
+    // every play; exposing it lets the console show and pre-fill it too.
+    goalies: acc.extra?.goalies
+      ? { home: acc.extra.goalies.home || null, away: acc.extra.goalies.away || null }
+      : null,
     scoringPlays: acc.scoringPlays,
     timeline: acc.timeline.slice(-200).reverse(),
     leaders: computeLeaders(sport, acc),

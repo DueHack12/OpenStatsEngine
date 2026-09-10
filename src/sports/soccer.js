@@ -6,7 +6,10 @@ export default {
   id: 'soccer',
   name: 'Soccer',
   periods: { count: 2, lengthMs: 40 * 60000, otLengthMs: 10 * 60000, label: 'Half', maxOvertimes: 3 },
-  clockCountsDown: false, // soccer clocks up
+  // NFHS high-school soccer counts down from 40:00 a half, which is also what
+  // the ScoreConnect board sends. (FIFA counts up; change this if you ever
+  // run a club match off a counting-up clock.)
+  clockCountsDown: true,
   hasPossession: true,
 
   palette: [

@@ -9,15 +9,20 @@
 >
 > What that means for you:
 >
-> - **It has not yet run a live game.** The test suite is thorough (498 tests on a
->   fresh clone, 510 with real exports in place), but
->   passing tests are not the same as a Friday night with a scoreboard operator.
+> - **It has run a handful of live games, not a season.** The test suite is
+>   thorough (548 tests on a fresh clone, 560 with real exports in place), but
+>   passing tests are not the same as a Friday night with a scoreboard operator,
+>   and the first real match still turned up three feed-parsing bugs the
+>   emulator never triggered. Expect to find more in a sport it has not seen.
 > - **Verify the stat rules against your own rulebook.** Scoring conventions were
 >   implemented to NFHS rules as understood at the time — sacks not counting as
 >   pass attempts, 40/25 play clock, 35-second shot clock, NCAA passer rating.
 >   Confirm anything you put on air.
-> - **The Sportzcast ScoreConnect III / MQTT feed has been verified against a
->   live emulator**, but not yet against a real scoreboard in a stadium.
+> - **The Sportzcast ScoreConnect III / MQTT feed now runs against a real
+>   scoreboard**, verified for soccer. Other sports have only been exercised
+>   against the emulator, and every board model names its fields slightly
+>   differently — paste one raw message into **Setup → Scorebot → Parse Sample**
+>   before trusting a new venue.
 > - Treat it as a solid starting point you own and can read, not as battle-tested
 >   broadcast software.
 >
@@ -390,6 +395,8 @@ data/vmix/<game-id>/scoreboard.xml  per-game copy
 (basketball), plus sport-neutral `AuxClock` `AuxClockLabel` `AuxClockRunning`
 `AuxClockExpired` `AuxClockVisible` so one GT template can serve both,
 `OfficialHomeScore` `OfficialAwayScore` `ScoreMismatch` (when a feed is connected),
+`BoardHomeSOG` `BoardHomeCorners` `BoardHomeSaves` and the `BoardAway*` equivalents
+(when the scoreboard counts them itself),
 `HomeTOP` `AwayTOP` (time of possession), `HomeDrought` `AwayDrought`
 (time since that team last scored), and `HomeP1…HomeP7` / `AwayP1…` for the
 linescore.
@@ -524,7 +531,7 @@ them on the diamond strip instead.
 
 | Field | Default |
 |---|---|
-| Period / Inning, Game Clock, Clock Running, Home/Away Score, Possession, Play / Shot Clock, Down, Distance, Ball On | Scorebot |
+| Period / Inning, Game Clock, Clock Running, Home/Away Score, Possession, Play / Shot Clock, Down, Distance, Ball On, Shots on Goal, Corner Kicks, Saves | Scorebot |
 | Top / Bottom, Outs, Balls, Strikes, Runners on Base | Manual |
 
 A manual entry always wins over an earlier feed value, so you can correct a field
@@ -537,6 +544,21 @@ never adds to a score arriving from the feed** — the two are kept as separate
 numbers and are only ever compared, never summed. A board reading replaces the
 previous one rather than accumulating, so a scoreboard repeating `HomeScore: 14`
 once a second does not run the score away.
+
+#### Counting stats the board keeps
+
+Soccer, hockey and lacrosse scoreboards often track shots on goal, corner kicks
+and saves themselves. **Shots on Goal**, **Corner Kicks** and **Saves** are feed
+fields like any other — one switch each, covering both sides, since nobody wants
+the board's home corners next to their own away corners.
+
+They are stored as the *board's* figures rather than folded into the team totals.
+Four shots on a scoreboard cannot be turned into four shot events, and
+overwriting a total the operator has been logging by hand would lose real work.
+They appear in **Stats → Team** under *From the Scoreboard*, and in the
+scoreboard XML as `BoardHomeSOG` / `BoardHomeCorners` / `BoardHomeSaves` (and the
+away equivalents), so a title can bind whichever number the crew trusts for that
+sport.
 
 The feed's own figure is stored alongside as `OfficialHomeScore` /
 `OfficialAwayScore`, with `ScoreMismatch` set to 1 when the two disagree. Bind
@@ -736,7 +758,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 498 tests on a fresh clone (510 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 548 tests on a fresh clone (560 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation, field-source gating, feed-loss and stalled-feed detection,
 board-vs-entered score separation, baseball bases/count, per-sport scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

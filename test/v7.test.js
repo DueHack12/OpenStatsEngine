@@ -51,6 +51,38 @@ const guest = normalizeFeed({ GuestShots: '7', GuestCornerKicks: '3', GuestSaves
 eq('Guest* names map to the away side',
   [guest.awayShots, guest.awayCorners, guest.awaySaves], [7, 3, 5]);
 
+/* ------------------------------------------------------------------ *
+ * Sportzcast capitalises its field names differently from sport to sport.
+ * Matching one spelling at a time is how a live match ends up stuck in the
+ * first half, so key lookup ignores case entirely.
+ * ------------------------------------------------------------------ */
+console.log('\n== capitalisation must not matter ==');
+
+const recase = (o, fn) => Object.fromEntries(Object.entries(o).map(([k, v]) => [fn(k), v]));
+const summary = (o) => {
+  const n = normalizeFeed(o);
+  return [n.period, n.clockMs, n.running, n.homeScore, n.awayScore,
+    n.homeShots, n.awayShots, n.homeCorners, n.awayCorners];
+};
+const want = summary(RAW);
+eq('the PascalCase message reads fully', want, [2, 1860000, true, 2, 0, 4, 1, 2, 3]);
+eq('all-lowercase reads the same', summary(recase(RAW, (k) => k.toLowerCase())), want);
+eq('ALL-UPPERCASE reads the same', summary(recase(RAW, (k) => k.toUpperCase())), want);
+
+// An exact match still wins, so a feed carrying two spellings is predictable.
+eq('an exact match beats a case-folded one',
+  normalizeFeed({ period: '4', Period: '9' }).period, 4);
+
+// Nested paths fold case per segment.
+eq('dotted paths fold case too', normalizeFeed({ DATA: { Clock: '5:00' } }).clockMs, 300000);
+
+// The collision this opened up: baseball's half-inning must not be read as a
+// period number just because 'half' looks like a period name.
+const bb = normalizeFeed({ Half: 'BOT', Inning: '5', Outs: '2' });
+eq('baseball half stays a half', bb.half, 'bottom');
+eq('and the inning is the period', bb.period, 5);
+eq('with outs intact', bb.outs, 2);
+
 console.log('\n== S means stopped, R means running ==');
 eq('R runs', normalizeFeed({ ClockStatus: 'R' }).running, true);
 eq('S stops', normalizeFeed({ ClockStatus: 'S' }).running, false);

@@ -48,8 +48,10 @@ export const DEFAULT_SOURCES = {
 const CANDIDATES = {
   // Sportzcast ScoreConnect III publishes PascalCase keys ("Quarter", "Clock",
   // "GuestScore"), so those names sit alongside the generic ones.
-  period: ['period', 'Period', 'Quarter', 'quarter', 'inning', 'Inning', 'Half', 'half_number',
-    'currentPeriod', 'periodNumber', 'data.period'],
+  // Casing no longer matters (see dig), so one spelling of each name is enough.
+  // 'half' is deliberately absent: baseball uses it for the half-inning, and
+  // matching it here would read "top" as a period number.
+  period: ['period', 'quarter', 'inning', 'currentPeriod', 'periodNumber', 'data.period'],
   clock: ['clock', 'Clock', 'gameClock', 'displayClock', 'time', 'timeRemaining', 'data.clock'],
   running: ['running', 'clockRunning', 'ClockStatus', 'isRunning', 'clockState', 'data.running'],
   homeScore: ['homeScore', 'HomeScore', 'home.score', 'scores.home', 'homeTeamScore', 'data.homeScore'],
@@ -83,8 +85,22 @@ const CANDIDATES = {
 
 /* ---------------- path helpers ---------------- */
 
+/**
+ * Walk a dotted path, matching key names case-insensitively.
+ *
+ * Sportzcast varies its capitalisation by sport — soccer sends `Period`, other
+ * sports send it differently — and chasing that one spelling at a time is how
+ * a live match ends up stuck in the first half. An exact match still wins, so
+ * a feed carrying both spellings behaves predictably.
+ */
 function dig(obj, path) {
-  return path.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+  return path.split('.').reduce((o, k) => {
+    if (o == null || typeof o !== 'object') return undefined;
+    if (Object.prototype.hasOwnProperty.call(o, k)) return o[k];
+    const want = k.toLowerCase();
+    for (const key of Object.keys(o)) if (key.toLowerCase() === want) return o[key];
+    return undefined;
+  }, obj);
 }
 
 function pick(obj, paths) {

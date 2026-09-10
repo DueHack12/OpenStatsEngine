@@ -10,7 +10,7 @@
 > What that means for you:
 >
 > - **It has run a handful of live games, not a season.** The test suite is
->   thorough (548 tests on a fresh clone, 560 with real exports in place), but
+>   thorough (556 tests on a fresh clone, 568 with real exports in place), but
 >   passing tests are not the same as a Friday night with a scoreboard operator,
 >   and the first real match still turned up three feed-parsing bugs the
 >   emulator never triggered. Expect to find more in a sport it has not seen.
@@ -22,7 +22,8 @@
 >   scoreboard**, verified for soccer. Other sports have only been exercised
 >   against the emulator, and every board model names its fields slightly
 >   differently — paste one raw message into **Setup → Scorebot → Parse Sample**
->   before trusting a new venue.
+>   before trusting a new venue. Field names are matched **case-insensitively**,
+>   because Sportzcast capitalises them differently from one sport to the next.
 > - Treat it as a solid starting point you own and can read, not as battle-tested
 >   broadcast software.
 >
@@ -758,7 +759,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 548 tests on a fresh clone (560 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 556 tests on a fresh clone (568 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation, field-source gating, feed-loss and stalled-feed detection,
 board-vs-entered score separation, baseball bases/count, per-sport scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

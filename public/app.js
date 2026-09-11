@@ -1028,77 +1028,93 @@ async function createGame() {
   } catch (e) { toast(e.message, 'err'); }
 }
 
+/** One row in the games list. Shared by the live and archived sections. */
+function gameRow(g) {
+  const row = el('div', 'grow' + (g.id === S.gameId ? ' active' : '') + (g.archived ? ' arch' : ''));
+  const main = el('div', 'gmain');
+  const title = el('div', null, `${g.awayName} at ${g.homeName}`);
+  if (g.archived && g.id === S.gameId) title.appendChild(el('span', 'archtag', 'ARCHIVED'));
+  main.appendChild(title);
+  main.appendChild(el('div', 'gsub',
+    `${g.date} · ${g.sport} · ${g.level} · ${g.status}${g.venue ? ' · ' + g.venue : ''}`));
+  row.appendChild(main);
+
+  const act = el('button', null, g.id === S.gameId ? 'Active' : 'Make Active');
+  act.onclick = async () => {
+    await api(`/api/games/${encodeURIComponent(g.id)}/activate`, { method: 'POST', body: '{}' });
+    await openGame(g.id); renderGameList(); go('live');
+  };
+  row.appendChild(act);
+
+  const arch = el('button', null, g.archived ? 'Unarchive' : 'Archive');
+  arch.title = g.archived
+    ? 'Put this game back in the list above'
+    : 'Move to Archived. Nothing is deleted — exports and season totals are untouched.';
+  arch.onclick = async () => {
+    try {
+      await api(`/api/games/${encodeURIComponent(g.id)}/archive`, {
+        method: 'POST', body: JSON.stringify({ archived: !g.archived })
+      });
+      S.games = await api('/api/games');
+      // Opening the drawer after archiving shows where the game went, rather
+      // than having it simply vanish from the list.
+      if (!g.archived) S.showArchived = true;
+      renderGameList();
+      toast(g.archived ? 'Back in the list' : 'Moved to Archived — nothing deleted', 'ok');
+    } catch (e) { toast(e.message, 'err'); }
+  };
+  row.appendChild(arch);
+
+  const del = el('button', null, 'Delete');
+  del.onclick = async () => {
+    if (!confirm(`Delete "${g.id}" and all of its logged entries? This cannot be undone.\n\n` +
+      `To clear it from this list without losing anything, use Archive instead.`)) return;
+    await api(`/api/games/${encodeURIComponent(g.id)}`, { method: 'DELETE' });
+    S.games = await api('/api/games');
+    if (S.gameId === g.id) showNoGame();
+    renderGameList(); toast('Deleted');
+  };
+  row.appendChild(del);
+  return row;
+}
+
 function renderGameList() {
   const wrap = $('#gamelist'); wrap.innerHTML = '';
   if (!S.games.length) { wrap.innerHTML = '<div class="hint">No games yet.</div>'; return; }
 
-  // The active game always shows, archived or not — nobody should have to hunt
-  // for the game that is currently on air.
-  const isHidden = (g) => !!g.archived && g.id !== S.gameId;
-  const hidden = S.games.filter(isHidden).length;
-  const shown = S.showArchived ? S.games : S.games.filter((g) => !isHidden(g));
+  // The active game stays in the live list whatever its archive state — nobody
+  // should have to open a drawer to find the game that is currently on air.
+  const archived = S.games.filter((g) => g.archived && g.id !== S.gameId);
+  const live = S.games.filter((g) => !g.archived || g.id === S.gameId);
 
-  if (hidden) {
-    const bar = el('div', 'archbar');
-    const btn = el('button', 'linkish', S.showArchived
-      ? `Hide ${hidden} archived`
-      : `Show ${hidden} archived`);
-    btn.onclick = () => { S.showArchived = !S.showArchived; renderGameList(); };
-    bar.appendChild(btn);
-    wrap.appendChild(bar);
+  if (live.length) {
+    const list = el('div', 'glist');
+    for (const g of live) list.appendChild(gameRow(g));
+    wrap.appendChild(list);
+  } else {
+    wrap.appendChild(el('div', 'hint', 'Every game is archived — they are in the section below.'));
   }
 
-  if (!shown.length) {
-    wrap.appendChild(el('div', 'hint', 'Every game is archived. Use the button above to see them.'));
-    return;
-  }
+  if (!archived.length) return;
 
-  const list = el('div', 'glist');
-  for (const g of shown) {
-    const row = el('div', 'grow' + (g.id === S.gameId ? ' active' : '') + (g.archived ? ' arch' : ''));
-    const main = el('div', 'gmain');
-    const title = el('div', null, `${g.awayName} at ${g.homeName}`);
-    if (g.archived) title.appendChild(el('span', 'archtag', 'ARCHIVED'));
-    main.appendChild(title);
-    main.appendChild(el('div', 'gsub', `${g.date} · ${g.sport} · ${g.level} · ${g.status}${g.venue ? ' · ' + g.venue : ''}`));
-    row.appendChild(main);
+  // Their own section rather than dimmed rows mixed into the list: a finished
+  // game and this Friday's game should not look like neighbours.
+  const head = el('button', 'archhead' + (S.showArchived ? ' open' : ''));
+  head.setAttribute('aria-expanded', String(!!S.showArchived));
+  head.appendChild(el('span', 'archcaret', S.showArchived ? '▾' : '▸'));
+  head.appendChild(el('span', 'archttl', 'Archived'));
+  head.appendChild(el('span', 'archcount', String(archived.length)));
+  head.onclick = () => { S.showArchived = !S.showArchived; renderGameList(); };
+  wrap.appendChild(head);
 
-    const act = el('button', null, g.id === S.gameId ? 'Active' : 'Make Active');
-    act.onclick = async () => {
-      await api(`/api/games/${encodeURIComponent(g.id)}/activate`, { method: 'POST', body: '{}' });
-      await openGame(g.id); renderGameList(); go('live');
-    };
-    row.appendChild(act);
-
-    const arch = el('button', null, g.archived ? 'Unarchive' : 'Archive');
-    arch.title = g.archived
-      ? 'Put this game back in the list'
-      : 'Hide from this list. Nothing is deleted — exports and season totals are untouched.';
-    arch.onclick = async () => {
-      try {
-        await api(`/api/games/${encodeURIComponent(g.id)}/archive`, {
-          method: 'POST', body: JSON.stringify({ archived: !g.archived })
-        });
-        S.games = await api('/api/games');
-        renderGameList();
-        toast(g.archived ? 'Back in the list' : 'Archived — nothing deleted', 'ok');
-      } catch (e) { toast(e.message, 'err'); }
-    };
-    row.appendChild(arch);
-
-    const del = el('button', null, 'Delete');
-    del.onclick = async () => {
-      if (!confirm(`Delete "${g.id}" and all of its logged entries? This cannot be undone.\n\n` +
-        `To clear it from this list without losing anything, use Archive instead.`)) return;
-      await api(`/api/games/${encodeURIComponent(g.id)}`, { method: 'DELETE' });
-      S.games = await api('/api/games');
-      if (S.gameId === g.id) showNoGame();
-      renderGameList(); toast('Deleted');
-    };
-    row.appendChild(del);
-    list.appendChild(row);
-  }
-  wrap.appendChild(list);
+  if (!S.showArchived) return;
+  const box = el('div', 'archbox');
+  box.appendChild(el('div', 'archnote',
+    'Hidden from the list above. Nothing is deleted — exports, play-by-play and season totals are all intact.'));
+  const alist = el('div', 'glist');
+  for (const g of archived) alist.appendChild(gameRow(g));
+  box.appendChild(alist);
+  wrap.appendChild(box);
 }
 
 /* ---------------------------- teams ---------------------------- */

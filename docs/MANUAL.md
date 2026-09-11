@@ -724,7 +724,10 @@ because that is when you usually want it gone. Say *Keep it in the list* if you
 still have exports to pull; the game can be archived later from **Setup →
 Games** at any time.
 
-Archived games are revealed with **Show N archived** at the top of the list.
+Archived games live in their own collapsed **Archived** section below the list,
+with a count. A finished game and this Friday's game should not look like
+neighbours, so they are not mixed in as dimmed rows. Archiving one opens the
+section, so you can see where it went rather than watching it vanish.
 
 ## Season history — playing a team twice
 
@@ -801,10 +804,10 @@ board-vs-entered score separation, baseball bases/count, per-sport scoring), tes
 test that drives the live HTTP API through a football drive, undo, all six sports,
 XML, CSV and PDF generation.
 
-The server must be running on port 8770 for the end-to-end half:
+The server must be running on port 8781 for the end-to-end half (`npm run test:serve` does exactly this):
 
 ```bash
-node server.js --port 8770 --data "$TMPDIR/ose-test-data" --no-backup
+node server.js --port 8781 --data "$TMPDIR/ose-test-data" --no-backup
 ```
 
 ---

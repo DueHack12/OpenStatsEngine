@@ -1,5 +1,8 @@
 /* End-to-end smoke test: drives the real HTTP API like an operator would. */
-const BASE = process.env.BASE || 'http://localhost:8770';
+// 8781 rather than 8770: macOS `sharingd` binds 8770 opportunistically, and a
+// test server that quietly falls back to the next free port while the test
+// keeps calling 8770 fails in a thoroughly confusing way.
+const BASE = process.env.BASE || 'http://localhost:8781';
 let pass = 0, fail = 0;
 
 const j = async (path, opts = {}) => {

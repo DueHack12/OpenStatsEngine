@@ -265,6 +265,10 @@ input[type=file]{padding:6px;font-size:12px}
 #recent-list li.undone{background:#241a1e;opacity:.75}
 #recent-list li.undone .rl-main > div:first-child{text-decoration:line-through}
 .rl-undo.redo{border-color:var(--good);color:var(--good)}
+/* Sits beside undo on a logged play; distinct enough to hit on a phone
+   without competing with undo for attention. */
+.rl-undo.rl-edit{border-color:#33405a;color:#9fb6e0}
+.rl-undo.rl-edit:hover{border-color:var(--accent);color:var(--accent)}
 .sbrow{align-items:center}
 .sbrow .spacer{flex:1}
 .sbstate{font-weight:800;font-size:13px;padding:6px 10px;border-radius:7px;white-space:nowrap}

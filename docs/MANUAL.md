@@ -11,6 +11,7 @@ For installation and a two-minute overview, see the [README](../README.md).
 - [vMix setup](#vmix-setup)
 - [Scorebot / clock feed](#scorebot--clock-feed-optional)
 - [Importing HUDL and MaxPreps](#importing-hudl-and-maxpreps)
+- [Fixing a logged entry](#fixing-a-logged-entry)
 - [Archiving finished games](#archiving-finished-games)
 - [Exports](#exports)
 - [Season history — playing a team twice](#season-history--playing-a-team-twice)
@@ -700,6 +701,31 @@ Per team, per season: `season.csv` — every game plus computed season totals.
 
 ---
 
+## Fixing a logged entry
+
+Every logged play has **edit** and **undo** beside it in the recent list.
+
+**edit** reopens the play in the same form it was entered with, filled in as it
+stands. Change the player, the yardage, tick or untick a touchdown, and **Save
+Changes**. The totals follow immediately: reassigning a catch takes the yards
+off one receiver and gives them to the other, and unticking a touchdown removes
+the points.
+
+It edits against the play's own team, so a play logged for the away side opens
+with the away roster even while the console is set to home.
+
+**Nothing is rewritten in place.** An edit appends a correction to the log; the
+original entry and every edit of it stay, which is what keeps undo exact and
+leaves a record of what changed. Edited plays are marked *(edited)* in the
+recent list and in exports.
+
+Clearing a field really clears it — remove an assist and the assist is gone,
+not quietly retained. Optional fields left at their defaults are not written, so
+editing a play does not decorate it with `YAC: 0`.
+
+Use **undo** instead when the play should not have been logged at all; that is
+reversible too, with **redo**.
+
 ## Archiving finished games
 
 The games list in **Setup** shows every game you have created. Over a season
@@ -798,7 +824,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 577 tests on a fresh clone (589 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 591 tests on a fresh clone (603 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation, field-source gating, feed-loss and stalled-feed detection,
 board-vs-entered score separation, baseball bases/count, per-sport scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

@@ -349,6 +349,9 @@ function describe(sport, ev, nameOf, clockState) {
     clock: fmtClock(ev.clockMs ?? 0),
     ts: ev.ts, tsLocal: ev.tsLocal, by: ev.by || '',
     text: parts.join(' · '),
+    // The values as entered, so the console can reopen a play for editing
+    // without a second round trip to fetch the raw event.
+    data: { ...(ev.data || {}) },
     corrected: !!ev.corrected
   };
 }

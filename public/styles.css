@@ -396,3 +396,7 @@ button.tiny:hover{color:var(--fg)}
 .grow.arch{opacity:.72}
 .archtag{margin-left:8px;font-size:10px;font-weight:800;letter-spacing:1px;
   color:var(--dim);border:1px solid var(--line);border-radius:4px;padding:1px 5px;vertical-align:middle}
+
+/* The entry screen with nothing selected: say what to do, and why it might be
+   empty — archiving deselects, and that surprises people the first time. */
+.nghint{color:var(--dim);font-size:13px;max-width:46ch;margin:0 auto 14px;line-height:1.5}

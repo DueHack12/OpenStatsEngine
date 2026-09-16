@@ -28,6 +28,23 @@ export function registerRoutes(route, ctx) {
   const { store, broadcast, scorebot } = ctx;
 
   /** Stamp an event with the game clock in effect right now, then append. */
+  /**
+   * Archived means finished and put away, so nothing may change it until it is
+   * brought back. Without this an archived game could still be edited from a
+   * stale browser tab, or from the announcer view, and quietly disagree with
+   * the season totals it was committed into.
+   *
+   * Archiving, unarchiving and deleting stay allowed — otherwise a game could
+   * never be recovered.
+   */
+  function writable(gameId) {
+    const meta = store.getGame(gameId) || bad('No such game', 404);
+    if (meta.archived) {
+      bad('This game is archived. Unarchive it from Setup → Games before making changes.', 409);
+    }
+    return meta;
+  }
+
   function append(gameId, ev) {
     const meta = store.getGame(gameId) || bad('No such game', 404);
     const sport = getSport(meta.sport);
@@ -244,8 +261,15 @@ export function registerRoutes(route, ctx) {
       archived,
       archivedAt: archived ? localStamp() : null
     });
+    // An archived game is read-only, so leaving it selected would strand the
+    // operator on a screen where nothing works. Putting it away deselects it.
+    let deactivated = false;
+    if (archived && activeId() === params.id) {
+      store.updateConfig({ activeGameId: null });
+      deactivated = true;
+    }
     broadcast('update', { gameId: params.id });
-    return { ok: true, id: params.id, archived: !!meta.archived };
+    return { ok: true, id: params.id, archived: !!meta.archived, deactivated };
   });
 
   route('DELETE', '/api/games/:id', ({ params }) => {
@@ -308,7 +332,7 @@ export function registerRoutes(route, ctx) {
   /* ---------------- stat entry ---------------- */
   route('POST', '/api/games/:id/events', ({ params, body }) => {
     const b = body || {};
-    const meta = store.getGame(params.id) || bad('No such game', 404);
+    const meta = writable(params.id);
     if (b.type === 'stat' || b.action) {
       if (!b.team || !['home', 'away'].includes(b.team)) bad('team must be "home" or "away"');
       const sport = getSport(meta.sport);
@@ -349,6 +373,7 @@ export function registerRoutes(route, ctx) {
   });
 
   route('POST', '/api/games/:id/undo', ({ params, body }) => {
+    writable(params.id);
     let targetId = body?.eventId;
     if (!targetId) {
       // undo the most recent stat entry that has not already been undone
@@ -363,6 +388,7 @@ export function registerRoutes(route, ctx) {
 
   /** Put back an undone entry. With no eventId, the most recent undo is reversed. */
   route('POST', '/api/games/:id/redo', ({ params, body }) => {
+    writable(params.id);
     let targetId = body?.eventId;
     if (!targetId) {
       const raw = store.readEvents(params.id);
@@ -377,6 +403,7 @@ export function registerRoutes(route, ctx) {
   });
 
   route('POST', '/api/games/:id/correct', ({ params, body }) => {
+    writable(params.id);
     if (!body?.eventId) bad('eventId is required');
     store.correctEvent(params.id, body.eventId, body.data || {}, body.by || store.config.operator || '');
     touch(params.id);
@@ -385,6 +412,7 @@ export function registerRoutes(route, ctx) {
 
   /* ---------------- clock ---------------- */
   route('POST', '/api/games/:id/clock', ({ params, body }) => {
+    writable(params.id);
     const op = body?.op || bad('op is required (start|stop|set|period|aux|auxStart|auxStop|auxConfig)');
     const map = {
       start: 'clock_start', stop: 'clock_stop', set: 'clock_set', period: 'period_set',
@@ -427,6 +455,7 @@ export function registerRoutes(route, ctx) {
   });
 
   route('POST', '/api/games/:id/possession', ({ params, body }) => {
+    writable(params.id);
     const team = body?.team;
     if (!['home', 'away'].includes(team)) bad('team must be "home" or "away"');
     append(params.id, { type: 'possession', team, data: {} });
@@ -439,6 +468,7 @@ export function registerRoutes(route, ctx) {
    * always override a field the scoreboard is getting wrong.
    */
   route('POST', '/api/games/:id/situation', ({ params, body }) => {
+    writable(params.id);
     const d = body || {};
     const data = {};
     for (const k of ['down', 'distance', 'ballOn', 'possession', 'half', 'outs', 'balls', 'strikes', 'bases']) {
@@ -451,6 +481,7 @@ export function registerRoutes(route, ctx) {
 
   /** Freeze the game and roll its numbers into both teams' season totals. */
   route('POST', '/api/games/:id/commit', ({ params }) => {
+    writable(params.id);
     const g = deriveGame(store, params.id);
     store.commitSeasonStats(params.id, g);
     store.updateGame(params.id, { status: 'final', committedAt: localStamp() });

@@ -1117,10 +1117,15 @@ function gameRow(g) {
   row.appendChild(main);
 
   const act = el('button', null, g.id === S.gameId ? 'Active' : 'Make Active');
-  act.onclick = async () => {
-    await api(`/api/games/${encodeURIComponent(g.id)}/activate`, { method: 'POST', body: '{}' });
-    await openGame(g.id); renderGameList(); go('live');
-  };
+  if (g.archived) {
+    act.disabled = true;
+    act.title = 'Archived games are read-only. Unarchive it first to enter or edit plays.';
+  } else {
+    act.onclick = async () => {
+      await api(`/api/games/${encodeURIComponent(g.id)}/activate`, { method: 'POST', body: '{}' });
+      await openGame(g.id); renderGameList(); go('live');
+    };
+  }
   row.appendChild(act);
 
   const arch = el('button', null, g.archived ? 'Unarchive' : 'Archive');
@@ -1129,15 +1134,19 @@ function gameRow(g) {
     : 'Move to Archived. Nothing is deleted — exports and season totals are untouched.';
   arch.onclick = async () => {
     try {
-      await api(`/api/games/${encodeURIComponent(g.id)}/archive`, {
+      const r = await api(`/api/games/${encodeURIComponent(g.id)}/archive`, {
         method: 'POST', body: JSON.stringify({ archived: !g.archived })
       });
       S.games = await api('/api/games');
       // Opening the drawer after archiving shows where the game went, rather
       // than having it simply vanish from the list.
       if (!g.archived) S.showArchived = true;
+      // Archiving deselects, so the entry screen has to let go of it too.
+      if (r.deactivated) { S.cfg = await api('/api/config'); showNoGame(); }
       renderGameList();
-      toast(g.archived ? 'Back in the list' : 'Moved to Archived — nothing deleted', 'ok');
+      toast(g.archived
+        ? 'Back in the list — make it active to edit'
+        : 'Moved to Archived — read-only until you unarchive it', 'ok');
     } catch (e) { toast(e.message, 'err'); }
   };
   row.appendChild(arch);
@@ -1774,11 +1783,12 @@ async function commitGame() {
       no: 'Keep it in the list'
     });
     if (!archiveNow) return;
-    await api(`/api/games/${encodeURIComponent(id)}/archive`, {
+    const ar = await api(`/api/games/${encodeURIComponent(id)}/archive`, {
       method: 'POST', body: JSON.stringify({ archived: true })
     });
     S.games = await api('/api/games');
+    if (ar.deactivated) { S.cfg = await api('/api/config'); showNoGame(); }
     renderGameList();
-    toast('Archived — find it under "Show archived"', 'ok');
+    toast('Archived and read-only — unarchive it to make further changes', 'ok');
   } catch (e) { toast(e.message, 'err'); }
 }

@@ -746,18 +746,22 @@ The games list in **Setup** shows every game you have created. Over a season
 that becomes unwieldy, so a finished game can be **archived**: it disappears
 from the list, and nothing else about it changes.
 
-Archiving is a visibility flag and nothing more. The play-by-play, the PDF and
-CSV exports, the vMix XML and the season totals are all exactly as they were,
-and **Unarchive** puts the game straight back. It is the safe alternative to
-**Delete**, which removes the event log for good.
+Nothing is deleted. The play-by-play, the PDF and CSV exports, the vMix XML and
+the season totals are all exactly as they were, and **Unarchive** puts the game
+straight back. It is the safe alternative to **Delete**, which removes the event
+log for good.
 
-Two deliberate details:
+**An archived game is read-only.** Entering a play, editing one, undo, redo, the
+clock, the situation and committing to the season are all refused until it is
+unarchived — the server rejects them, so a browser tab left open on a finished
+game cannot quietly change numbers that have already gone into the season
+totals. Reading, exports and XML all keep working.
 
-- **The active game always stays visible**, archived or not. Nobody should have
-  to hunt for the game currently on air.
-- **Archiving does not deactivate a game.** Archiving right after the final
-  whistle is the normal case, and the crew is often still holding a final-score
-  graphic — pulling the vMix feed to tidy a list would be a poor trade.
+**Archiving deselects the game.** Since nothing about it can be changed, leaving
+it selected would strand the operator on an entry screen where every button is
+refused; the entry screen falls back to *No game selected* instead. **Make
+Active** is disabled on an archived game for the same reason — unarchive it
+first.
 
 **Mark Final & Commit to Season** offers to archive as soon as it has committed,
 because that is when you usually want it gone. Say *Keep it in the list* if you
@@ -838,7 +842,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 599 tests on a fresh clone (611 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 611 tests on a fresh clone (623 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation, field-source gating, feed-loss and stalled-feed detection,
 board-vs-entered score separation, baseball bases/count, per-sport scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

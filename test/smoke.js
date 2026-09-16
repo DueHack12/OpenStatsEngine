@@ -354,10 +354,39 @@ console.log('\n== errors are sane ==');
     ok('the box score still exports', (await j(`/api/games/${G}/export/boxscore.csv`)).length > 50);
     ok('vMix XML still serves', (await j(`/vmix/${G}/scoreboard.xml`)).includes('<Row>'));
 
-    // It must be reversible, and it must not have quietly deactivated anything.
+    // Archived means finished and put away: nothing may change it until it
+    // comes back. Otherwise a stale browser tab could still edit a game that
+    // has already been committed into the season totals.
+    ok('archiving deselects the game', r1.deactivated === true);
+    check('so nothing is active', (await j('/api/config')).activeGameId, null);
+
+    const refused = async (label, path, body) => {
+      try { await j(path, { method: 'POST', body: JSON.stringify(body) }); ok(`archived: refuses to ${label}`, false); }
+      catch (e) { ok(`archived: refuses to ${label}`, /archived/i.test(e.message), e.message.slice(0, 40)); }
+    };
+    await refused('log a play', `/api/games/${G}/events`,
+      { type: 'stat', team: 'home', action: 'rush', data: { rusher: P(H, 22), yards: 3 } });
+    await refused('edit an entry', `/api/games/${G}/correct`, { eventId: 'whatever', data: {} });
+    await refused('undo', `/api/games/${G}/undo`, {});
+    await refused('redo', `/api/games/${G}/redo`, {});
+    await refused('touch the clock', `/api/games/${G}/clock`, { op: 'start' });
+    await refused('set possession', `/api/games/${G}/possession`, { team: 'home' });
+    await refused('set the situation', `/api/games/${G}/situation`, { down: 2 });
+    await refused('commit to the season', `/api/games/${G}/commit`, {});
+
+    // Reading it stays available — that is the whole point of archiving rather
+    // than deleting.
+    ok('but it still reads', (await j(`/api/games/${G}/state`)).teams !== undefined);
+
+    // It must be reversible, and writable again once it is back.
     const r2 = await j(`/api/games/${G}/archive`, { method: 'POST', body: JSON.stringify({ archived: false }) });
     ok('unarchiving works', r2.archived === false);
     ok('and clears the timestamp', !(await j('/api/games')).find((x) => x.id === G).archivedAt);
+    await j(`/api/games/${G}/activate`, { method: 'POST', body: '{}' });
+    const back = await j(`/api/games/${G}/events`, { method: 'POST',
+      body: JSON.stringify({ type: 'stat', team: 'home', action: 'rush', data: { rusher: P(H, 22), yards: 3 } }) });
+    ok('and accepts entries again once unarchived', !!back.event.id);
+    await j(`/api/games/${G}/undo`, { method: 'POST', body: JSON.stringify({ eventId: back.event.id }) });
 
     try { await j('/api/games/not-a-game/archive', { method: 'POST', body: '{}' }); ok('404s an unknown game', false); }
     catch (e) { ok('404s an unknown game', /404|No such game/.test(e.message)); }

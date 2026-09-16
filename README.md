@@ -10,7 +10,7 @@
 > What that means for you:
 >
 > - **It has run a handful of live games, not a season.** The test suite is
->   thorough (577 tests on a fresh clone, 589 with real exports in place), but
+>   thorough (599 tests on a fresh clone, 611 with real exports in place), but
 >   passing tests are not the same as a Friday night with a scoreboard operator,
 >   and the first real match still turned up three feed-parsing bugs the
 >   emulator never triggered. Expect to find more in a sport it has not seen.
@@ -82,7 +82,8 @@ That is enough to go on air. Everything else is optional.
 - **Six sports** — football, basketball, ice hockey, soccer, lacrosse and
   baseball/softball, each with its own play palette, stat rules and clock.
 - **Entry in seconds.** The palette is built for one operator working at game
-  speed, with sticky fields, undo and redo.
+  speed, with sticky fields, undo, redo, and edit for fixing a play after the
+  fact without losing the original.
 - **Live XML for vMix**, following whichever game is active, so you configure
   vMix once for the season.
 - **Scoreboard feed** — reads period, clock, score, possession, down &
@@ -131,7 +132,7 @@ in any editor. Rolling backups are taken on every start.
 npm test              # in a second terminal: npm run test:serve
 ```
 
-577 tests on a fresh clone, covering clock maths, per-sport scoring, the
+599 tests on a fresh clone, covering clock maths, per-sport scoring, the
 importers, scorebot normalisation, feed-loss detection, XML and PDF generation,
 plus an end-to-end pass that drives the real HTTP API through a full game.
 

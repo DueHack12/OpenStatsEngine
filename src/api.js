@@ -315,13 +315,35 @@ export function registerRoutes(route, ctx) {
       const known = sport.palette.some((g) => g.actions.some((a) => a.key === b.action));
       if (!known) bad(`Unknown action "${b.action}" for ${meta.sport}`);
     }
+    /*
+     * The console stamps the clock when the operator taps the play, not when
+     * they finish filling the form. A goal is tapped the instant it goes in and
+     * the scorer is chosen afterwards, so reading the clock on arrival here
+     * would record the play several seconds late — and with it the wrong
+     * period, if the tap landed either side of a buzzer.
+     */
+    const at = {};
+    if (b.clockMs !== undefined && b.clockMs !== null) {
+      const ms = Number(b.clockMs);
+      if (!Number.isFinite(ms) || ms < 0) bad('clockMs must be a number of milliseconds');
+      at.clockMs = Math.round(ms);
+    }
+    if (b.period !== undefined && b.period !== null) {
+      const n = Number(b.period);
+      const sport = getSport(meta.sport);
+      const max = sport.periods.count + (meta.settings?.maxOvertimes ?? sport.periods.maxOvertimes ?? 3);
+      if (!Number.isInteger(n) || n < 1 || n > max) bad(`period must be a whole number from 1 to ${max}`);
+      at.period = n;
+    }
+
     const ev = append(params.id, {
       type: b.type || 'stat',
       team: b.team,
       action: b.action,
       data: b.data || {},
       by: b.by || store.config.operator || '',
-      source: 'manual'
+      source: 'manual',
+      ...at
     });
     return { event: ev, state: deriveGame(store, params.id) };
   });

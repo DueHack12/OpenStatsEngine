@@ -234,6 +234,108 @@ console.log('\n== errors are sane ==');
   try { await j('/api/games/nope/state'); ok('404s unknown game', false); }
   catch (e) { ok('404s unknown game', /404/.test(e.message)); }
 
+  console.log('\n== an entry is stamped when the play is tapped ==');
+  {
+    // The operator taps GOAL the instant it goes in, then picks the scorer.
+    // Reading the clock when the form is submitted would log the play several
+    // seconds late — and in the wrong period if the tap landed either side of
+    // a buzzer.
+    const TG = (await j('/api/games', { method: 'POST', body: JSON.stringify({
+      sport: 'football', homeTeamId: home.id, awayTeamId: away.id, date: '2026-11-22'
+    }) })).id;
+    await j(`/api/games/${TG}/clock`, { method: 'POST', body: JSON.stringify({ op: 'set', ms: 10 * 60000 }) });
+
+    const tapped = 7 * 60000 + 13000;      // 7:13, nowhere near the live clock
+    const r = await j(`/api/games/${TG}/events`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'stat', team: 'home', action: 'rush',
+        data: { rusher: P(H, 22), yards: 4 }, clockMs: tapped, period: 2 })
+    });
+    const ev = r.event;
+    check('the tapped clock is what gets stored', ev.clockMs, tapped);
+    check('and the tapped period with it', ev.period, 2);
+    check('the timeline shows it', r.state.timeline.find((t) => t.id === ev.id).clock, '7:13');
+
+    // Without one, the server still stamps from the live clock as before.
+    const r2 = await j(`/api/games/${TG}/events`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'stat', team: 'home', action: 'rush', data: { rusher: P(H, 22), yards: 1 } })
+    });
+    check('no stamp still falls back to the live clock', r2.event.clockMs, 10 * 60000);
+
+    for (const [label, bad_] of [
+      ['a negative clock', { clockMs: -5 }],
+      ['a clock that is not a number', { clockMs: 'soon' }],
+      ['a period past the overtime cap', { period: 99 }],
+      ['a fractional period', { period: 1.5 }]
+    ]) {
+      try {
+        await j(`/api/games/${TG}/events`, { method: 'POST',
+          body: JSON.stringify({ type: 'stat', team: 'home', action: 'rush', data: {}, ...bad_ }) });
+        ok(`rejects ${label}`, false);
+      } catch (e) { ok(`rejects ${label}`, /clockMs|period/.test(e.message)); }
+    }
+
+    await j(`/api/games/${TG}`, { method: 'DELETE' });
+    await j(`/api/games/${G}/activate`, { method: 'POST', body: '{}' });
+  }
+
+  console.log('\n== editing a logged entry ==');
+  {
+    // Its own game: these checks are about exact totals, and piggybacking on a
+    // game that already has a drive logged makes them meaningless.
+    const EG = (await j('/api/games', { method: 'POST', body: JSON.stringify({
+      sport: 'football', homeTeamId: home.id, awayTeamId: away.id, date: '2026-11-21'
+    }) })).id;
+
+    const r1 = await j(`/api/games/${EG}/events`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'stat', team: 'home', action: 'pass_complete',
+        data: { passer: P(H, 7), receiver: P(H, 80), yards: 9 } })
+    });
+    const mine = r1.state.timeline.filter((t) => t.type === 'stat');
+    check('one entry logged', mine.length, 1);
+    const evId = mine[0].id;
+    ok('the timeline carries the entered values back', mine[0].data?.yards === 9, JSON.stringify(mine[0].data));
+    ok('and the action, so the right form can be reopened', mine[0].action === 'pass_complete');
+
+    const recOf = (st, name) => Object.values(st.players).find((p) => p.name === name) || {};
+    check('receiver credited as entered', recOf(r1.state, 'Ryan Alves').rec_yds, 9);
+
+    // Reassign to a different receiver, longer, and a touchdown.
+    const r2 = await j(`/api/games/${EG}/correct`, {
+      method: 'POST',
+      body: JSON.stringify({ eventId: evId, data: { data: { passer: P(H, 7), receiver: P(H, 11), yards: 30, td: true } } })
+    });
+    check('the original receiver loses it', recOf(r2.state, 'Ryan Alves').rec_yds || 0, 0);
+    check('the new receiver gains it', recOf(r2.state, 'Sam Turner').rec_yds, 30);
+    check('and is credited the touchdown', recOf(r2.state, 'Sam Turner').rec_td, 1);
+    check('the score follows', r2.state.teams.home.points, 6);
+    ok('the entry is flagged as edited', r2.state.timeline.find((t) => t.id === evId).corrected === true);
+
+    // Clearing a field has to clear it. A correction is merged onto the
+    // original, so a field simply left out would keep its old value.
+    const r3 = await j(`/api/games/${EG}/correct`, {
+      method: 'POST',
+      body: JSON.stringify({ eventId: evId, data: { data: { passer: P(H, 7), receiver: P(H, 11), yards: 30, td: null } } })
+    });
+    check('unticking the touchdown removes it', recOf(r3.state, 'Sam Turner').rec_td, 0);
+    check('and takes the points with it', r3.state.teams.home.points, 0);
+
+    // Nothing is rewritten in place — the original entry and both edits stay.
+    const raw = await j(`/api/games/${EG}/events`);
+    check('two corrections are on the log', raw.filter((e) => e.type === 'correct' && e.targetId === evId).length, 2);
+    ok('the original entry is untouched', raw.some((e) => e.id === evId && e.data?.yards === 9));
+
+    try { await j(`/api/games/${EG}/correct`, { method: 'POST', body: JSON.stringify({ data: {} }) }); ok('rejects a correction with no eventId', false); }
+    catch (e) { ok('rejects a correction with no eventId', /eventId/.test(e.message)); }
+
+    // Creating a game makes it active, so put the original back before the
+    // checks that follow go looking for it.
+    await j(`/api/games/${EG}`, { method: 'DELETE' });
+    await j(`/api/games/${G}/activate`, { method: 'POST', body: '{}' });
+  }
+
   console.log('\n== archiving ==');
   {
     // Archiving is a visibility flag and nothing more: everything the game

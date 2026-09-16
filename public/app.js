@@ -630,6 +630,10 @@ function renderRecent() {
     if (t.text) main.appendChild(el('div', 'rl-detail', t.text));
     li.appendChild(main);
     if (t.type === 'stat') {
+      const ed = el('button', 'rl-undo rl-edit', 'edit');
+      ed.title = 'Reopen this play and change what was entered';
+      ed.onclick = () => editEntry(t);
+      li.appendChild(ed);
       const u = el('button', 'rl-undo', 'undo');
       u.onclick = () => undoEvent(t.id);
       li.appendChild(u);
@@ -679,16 +683,21 @@ function openSheet(action) {
   if (!S.state) return;
   const vals = {};
   for (const f of action.fields || []) {
-    if (f.sticky && S.sticky[S.side][f.name] != null) vals[f.name] = S.sticky[S.side][f.name];
-    else if (f.default !== undefined) vals[f.name] = f.default;
-    else if (f.type === 'toggle') vals[f.name] = false;
-    else if (f.type === 'players' || f.type === 'players_opp') vals[f.name] = [];
-    else if (f.type === 'number') vals[f.name] = 0;
-    else vals[f.name] = f.type === 'select' ? (f.options?.[0] ?? '') : null;
+    vals[f.name] = (f.sticky && S.sticky[S.side][f.name] != null)
+      ? S.sticky[S.side][f.name] : fieldDefault(f);
   }
   // Snapshot the starting values so an untouched optional field is not saved.
-  SHEET = { action, vals, init: JSON.parse(JSON.stringify(vals)), activeNum: null };
+  // Stamped now, not on save. A goal is tapped the moment it goes in and the
+  // scorer is chosen afterwards; reading the clock at save time would log the
+  // play several seconds late, and put it in the wrong period if the tap landed
+  // either side of a buzzer.
+  SHEET = {
+    action, vals, init: JSON.parse(JSON.stringify(vals)), activeNum: null,
+    side: S.side, editing: null,
+    at: { clockMs: Math.round(liveClockMs()), period: S.state.clock.period }
+  };
   $('#sheet-title').textContent = action.label;
+  $('#sheet-save').textContent = 'Save Entry';
   $('#sheet-team').textContent = (S.state.teams[S.side].shortName || S.state.teams[S.side].name).toUpperCase();
   renderSheetFields();
   $('#sheet').classList.remove('hidden');
@@ -699,10 +708,54 @@ function openSheet(action) {
 
 function closeSheet() { $('#sheet').classList.add('hidden'); SHEET = null; }
 
+/**
+ * Reopen a logged play with its values filled in.
+ *
+ * Corrections are appended, never overwritten in place — the original entry
+ * and every edit of it stay in the log, which is what makes undo exact and
+ * leaves an audit trail of who changed what.
+ */
+function editEntry(t) {
+  if (!S.state || t.type !== 'stat') return;
+  const action = (S.sport.palette || [])
+    .flatMap((g) => g.actions || [])
+    .find((a) => a.key === t.action);
+  if (!action) return toast(`"${t.action}" is not in this sport's palette`, 'err');
+
+  const vals = {};
+  for (const f of action.fields || []) {
+    const v = t.data?.[f.name];
+    vals[f.name] = v === undefined || v === null ? fieldDefault(f) : v;
+  }
+  // No `init` snapshot here: when editing, every field is written back, so
+  // clearing one actually clears it instead of silently keeping the old value.
+  SHEET = { action, vals, init: {}, activeNum: null, side: t.team, editing: t.id };
+  $('#sheet-title').textContent = `Edit — ${action.label}`;
+  $('#sheet-save').textContent = 'Save Changes';
+  const team = S.state.teams[t.team];
+  $('#sheet-team').textContent = (team.shortName || team.name).toUpperCase();
+  renderSheetFields();
+  $('#sheet').classList.remove('hidden');
+}
+
+/** What a field holds before anyone touches it. */
+function fieldDefault(f) {
+  if (f.default !== undefined) return f.default;
+  if (f.type === 'toggle') return false;
+  if (f.type === 'players' || f.type === 'players_opp') return [];
+  if (f.type === 'number') return 0;
+  return f.type === 'select' ? (f.options?.[0] ?? '') : null;
+}
+
+/** The side this sheet is about: the selected team when entering, the play's
+ *  own team when editing one logged against the other side. */
+const sheetSide = () => SHEET?.side ?? S.side;
+
 function renderSheetFields() {
   const wrap = $('#sheet-fields'); wrap.innerHTML = '';
   const { action, vals } = SHEET;
-  const other = S.side === 'home' ? 'away' : 'home';
+  const side = sheetSide();
+  const other = side === 'home' ? 'away' : 'home';
 
   for (const f of action.fields || []) {
     const box = el('div', 'field' + (f.optional ? ' optional collapsed' : ''));
@@ -722,19 +775,19 @@ function renderSheetFields() {
     const setVal = (v) => { vals[f.name] = v; paintLabel(); };
     const paintLabel = () => {
       const v = vals[f.name];
-      if (f.type === 'player' || f.type === 'player_opp') valSpan.textContent = v ? playerLabel(f.type === 'player' ? S.side : other, v) : '';
+      if (f.type === 'player' || f.type === 'player_opp') valSpan.textContent = v ? playerLabel(f.type === 'player' ? side : other, v) : '';
       else if (f.type === 'players' || f.type === 'players_opp') valSpan.textContent = (v || []).length ? `${v.length} selected` : '';
       else if (f.type === 'toggle') valSpan.textContent = v ? 'YES' : '';
       else valSpan.textContent = v === 0 || v ? String(v) : '';
     };
 
     if (f.type === 'player' || f.type === 'player_opp') {
-      body.appendChild(playerGrid(f.type === 'player' ? S.side : other, () => vals[f.name], (id) => {
+      body.appendChild(playerGrid(f.type === 'player' ? side : other, () => vals[f.name], (id) => {
         setVal(vals[f.name] === id ? null : id);
         renderSheetFields();
       }));
     } else if (f.type === 'players' || f.type === 'players_opp') {
-      body.appendChild(playerGrid(f.type === 'players' ? S.side : other, () => vals[f.name] || [], (id) => {
+      body.appendChild(playerGrid(f.type === 'players' ? side : other, () => vals[f.name] || [], (id) => {
         const cur = vals[f.name] || [];
         setVal(cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]);
         renderSheetFields();
@@ -829,27 +882,51 @@ function numpad(f, getVal, setVal) {
 
 async function saveSheet() {
   if (!SHEET || !S.gameId) return;
-  const { action, vals, init } = SHEET;
+  const { action, vals, init, editing } = SHEET;
+  const side = sheetSide();
   const data = {};
   for (const f of action.fields || []) {
     const v = vals[f.name];
+    if (editing) {
+      // Every field is written back, blanks as explicit nulls. A correction is
+      // merged onto the original, so a field simply left out would keep its old
+      // value, making it impossible to remove an assist or untick a TD.
+      //
+      // An optional field sitting at its default is written as null rather than
+      // as 0 or false, so editing a play does not decorate it with "YAC: 0".
+      const blank = v === null || v === undefined || v === '' || v === false ||
+        (Array.isArray(v) && !v.length);
+      data[f.name] = (blank || (f.optional && JSON.stringify(v) === JSON.stringify(fieldDefault(f))))
+        ? null : v;
+      continue;
+    }
     if (v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length)) continue;
     if (v === false) continue;
     // An optional field the operator never touched carries no information.
     if (f.optional && JSON.stringify(v) === JSON.stringify(init[f.name])) continue;
     data[f.name] = v;
-    if (f.sticky) S.sticky[S.side][f.name] = v;
+    if (f.sticky) S.sticky[side][f.name] = v;
   }
   const btn = $('#sheet-save'); btn.disabled = true;
   try {
-    const r = await api(`/api/games/${encodeURIComponent(S.gameId)}/events`, {
-      method: 'POST',
-      body: JSON.stringify({ type: 'stat', team: S.side, action: action.key, data })
-    });
+    const r = editing
+      ? await api(`/api/games/${encodeURIComponent(S.gameId)}/correct`, {
+        method: 'POST',
+        // The nested `data` is the contract: the outer object patches the
+        // event itself, the inner one patches the play's own fields.
+        body: JSON.stringify({ eventId: editing, data: { data } })
+      })
+      : await api(`/api/games/${encodeURIComponent(S.gameId)}/events`, {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'stat', team: side, action: action.key, data,
+          ...(SHEET.at || {})
+        })
+      });
     S.state = r.state;
     closeSheet();
     applyState();
-    toast(action.label + ' saved', 'ok');
+    toast(editing ? `${action.label} edited` : `${action.label} saved`, 'ok');
   } catch (e) { toast(e.message, 'err'); }
   finally { btn.disabled = false; }
 }

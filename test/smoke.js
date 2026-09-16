@@ -234,6 +234,52 @@ console.log('\n== errors are sane ==');
   try { await j('/api/games/nope/state'); ok('404s unknown game', false); }
   catch (e) { ok('404s unknown game', /404/.test(e.message)); }
 
+  console.log('\n== an entry is stamped when the play is tapped ==');
+  {
+    // The operator taps GOAL the instant it goes in, then picks the scorer.
+    // Reading the clock when the form is submitted would log the play several
+    // seconds late — and in the wrong period if the tap landed either side of
+    // a buzzer.
+    const TG = (await j('/api/games', { method: 'POST', body: JSON.stringify({
+      sport: 'football', homeTeamId: home.id, awayTeamId: away.id, date: '2026-11-22'
+    }) })).id;
+    await j(`/api/games/${TG}/clock`, { method: 'POST', body: JSON.stringify({ op: 'set', ms: 10 * 60000 }) });
+
+    const tapped = 7 * 60000 + 13000;      // 7:13, nowhere near the live clock
+    const r = await j(`/api/games/${TG}/events`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'stat', team: 'home', action: 'rush',
+        data: { rusher: P(H, 22), yards: 4 }, clockMs: tapped, period: 2 })
+    });
+    const ev = r.event;
+    check('the tapped clock is what gets stored', ev.clockMs, tapped);
+    check('and the tapped period with it', ev.period, 2);
+    check('the timeline shows it', r.state.timeline.find((t) => t.id === ev.id).clock, '7:13');
+
+    // Without one, the server still stamps from the live clock as before.
+    const r2 = await j(`/api/games/${TG}/events`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'stat', team: 'home', action: 'rush', data: { rusher: P(H, 22), yards: 1 } })
+    });
+    check('no stamp still falls back to the live clock', r2.event.clockMs, 10 * 60000);
+
+    for (const [label, bad_] of [
+      ['a negative clock', { clockMs: -5 }],
+      ['a clock that is not a number', { clockMs: 'soon' }],
+      ['a period past the overtime cap', { period: 99 }],
+      ['a fractional period', { period: 1.5 }]
+    ]) {
+      try {
+        await j(`/api/games/${TG}/events`, { method: 'POST',
+          body: JSON.stringify({ type: 'stat', team: 'home', action: 'rush', data: {}, ...bad_ }) });
+        ok(`rejects ${label}`, false);
+      } catch (e) { ok(`rejects ${label}`, /clockMs|period/.test(e.message)); }
+    }
+
+    await j(`/api/games/${TG}`, { method: 'DELETE' });
+    await j(`/api/games/${G}/activate`, { method: 'POST', body: '{}' });
+  }
+
   console.log('\n== editing a logged entry ==');
   {
     // Its own game: these checks are about exact totals, and piggybacking on a

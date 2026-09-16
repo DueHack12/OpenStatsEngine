@@ -11,6 +11,7 @@ For installation and a two-minute overview, see the [README](../README.md).
 - [vMix setup](#vmix-setup)
 - [Scorebot / clock feed](#scorebot--clock-feed-optional)
 - [Importing HUDL and MaxPreps](#importing-hudl-and-maxpreps)
+- [When an entry is timed](#when-an-entry-is-timed)
 - [Fixing a logged entry](#fixing-a-logged-entry)
 - [Archiving finished games](#archiving-finished-games)
 - [Exports](#exports)
@@ -701,6 +702,19 @@ Per team, per season: `season.csv` — every game plus computed season totals.
 
 ---
 
+## When an entry is timed
+
+**The clock is stamped when you tap the play, not when you save it.**
+
+Tap **GOAL** the instant the ball crosses the line, then take your time picking
+the scorer and the assist. The entry is logged at the moment of the tap. Reading
+the clock on save would put every play several seconds late — and in the wrong
+period if the tap landed either side of a buzzer.
+
+The period is captured at the tap too, for the same reason.
+
+Nothing changes for one-tap plays, which save immediately anyway.
+
 ## Fixing a logged entry
 
 Every logged play has **edit** and **undo** beside it in the recent list.
@@ -824,7 +838,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 591 tests on a fresh clone (603 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 599 tests on a fresh clone (611 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation, field-source gating, feed-loss and stalled-feed detection,
 board-vs-entered score separation, baseball bases/count, per-sport scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

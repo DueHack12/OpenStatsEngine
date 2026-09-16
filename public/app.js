@@ -687,7 +687,15 @@ function openSheet(action) {
       ? S.sticky[S.side][f.name] : fieldDefault(f);
   }
   // Snapshot the starting values so an untouched optional field is not saved.
-  SHEET = { action, vals, init: JSON.parse(JSON.stringify(vals)), activeNum: null, side: S.side, editing: null };
+  // Stamped now, not on save. A goal is tapped the moment it goes in and the
+  // scorer is chosen afterwards; reading the clock at save time would log the
+  // play several seconds late, and put it in the wrong period if the tap landed
+  // either side of a buzzer.
+  SHEET = {
+    action, vals, init: JSON.parse(JSON.stringify(vals)), activeNum: null,
+    side: S.side, editing: null,
+    at: { clockMs: Math.round(liveClockMs()), period: S.state.clock.period }
+  };
   $('#sheet-title').textContent = action.label;
   $('#sheet-save').textContent = 'Save Entry';
   $('#sheet-team').textContent = (S.state.teams[S.side].shortName || S.state.teams[S.side].name).toUpperCase();
@@ -910,7 +918,10 @@ async function saveSheet() {
       })
       : await api(`/api/games/${encodeURIComponent(S.gameId)}/events`, {
         method: 'POST',
-        body: JSON.stringify({ type: 'stat', team: side, action: action.key, data })
+        body: JSON.stringify({
+          type: 'stat', team: side, action: action.key, data,
+          ...(SHEET.at || {})
+        })
       });
     S.state = r.state;
     closeSheet();

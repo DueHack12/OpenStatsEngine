@@ -23,7 +23,11 @@ const ALIAS = {
 function mapHeaders(header) {
   const map = {};
   header.forEach((h, i) => {
-    const n = norm(h);
+    // `norm` strips punctuation, so a column headed just "#" — which is how
+    // most roster pages label the jersey — normalised to an empty string and
+    // matched nothing, quietly importing every player without a number.
+    const raw = String(h || '').trim();
+    const n = /^#+$/.test(raw) || /^#\s*$/.test(raw) ? 'no' : norm(h);
     for (const [field, aliases] of Object.entries(ALIAS)) {
       if (aliases.includes(n)) { if (map[field] == null) map[field] = i; }
     }
@@ -111,13 +115,31 @@ export async function importRosterFromURL(url) {
   }
 
   const tables = parseHTMLTables(body);
+
+  /*
+   * Pick the table that looks most like a roster, by how many roster columns
+   * its header names. Size is only a tie-break.
+   *
+   * It used to be `score > best.score || rows.length > best.rows.length`, and
+   * that OR let sheer length win: on a page carrying a schedule or a results
+   * grid alongside the roster, the longest table took it as long as any column
+   * looked vaguely like a name. Which is exactly what "doesn't work if there's
+   * more than one table" looks like.
+   */
   let best = null, bestMap = null, bestHeader = -1;
   for (const rows of tables) {
     for (let i = 0; i < Math.min(rows.length, 3); i++) {
-      const m = mapHeaders(rows[i]);
-      const score = (m.name != null ? 2 : 0) + (m.number != null ? 1 : 0) + (m.pos != null ? 1 : 0);
-      if (m.name != null && (!best || score > best.score || rows.length > best.rows.length)) {
-        best = { rows, score }; bestMap = m; bestHeader = i;
+      const header = rows[i];
+      if (header.length < 2) continue;                 // a single cell is a layout table
+      if (i + 1 >= rows.length) continue;              // a header with nothing under it
+      const m = mapHeaders(header);
+      if (m.name == null) continue;
+      const score = (m.name != null ? 3 : 0) + (m.number != null ? 2 : 0)
+        + (m.pos != null ? 1 : 0) + (m.year != null ? 1 : 0)
+        + (m.height != null ? 1 : 0) + (m.weight != null ? 1 : 0);
+      const dataRows = rows.length - i - 1;
+      if (!best || score > best.score || (score === best.score && dataRows > best.dataRows)) {
+        best = { rows, score, dataRows }; bestMap = m; bestHeader = i;
       }
     }
   }

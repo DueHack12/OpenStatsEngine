@@ -9,7 +9,9 @@ import { deriveGame } from '../src/engine.js';
 import { clockFromEvents, elapsedGameMs } from '../src/clock.js';
 import { getSport } from '../src/sports/index.js';
 import { parseRosterCSV, parseStatsCSV } from '../src/importers/index.js';
+import http from 'node:http';
 import { parseHTMLTables } from '../src/importers/html.js';
+import { importRosterFromURL } from '../src/importers/index.js';
 import { normalizeFeed, applyFeed } from '../src/integrations/scorebot.js';
 import { parseCSV } from '../src/util.js';
 
@@ -128,6 +130,53 @@ const tables = parseHTMLTables(html);
 eq('table found', tables.length, 1);
 eq('rows parsed', tables[0].length, 3);
 eq('cell text', tables[0][1][2], 'Jordan Reyes');
+
+console.log('\n== a roster page with more than one table ==');
+{
+  // The shape that broke it: an ASP.NET layout table wrapping the roster and a
+  // longer coaching-staff table, which also has a Name column. The roster is
+  // the shorter of the two, and it comes first.
+  const page = `<html><head><title>Team Roster</title></head><body><form>
+<table id="outer"><tr><td>
+  <table id="roster">
+    <tr><th>#</th><th>Name</th><th>Grade</th></tr>
+    <tr><td>00</td><td>Alex Rivera</td><td>12</td></tr>
+    <tr><td>7</td><td>Jordan Blake</td><td>11</td></tr>
+    <tr><td>14</td><td>Casey Nolan</td><td>12</td></tr>
+  </table>
+  <table id="coaches">
+    <tr><th>Name</th><th>Role</th></tr>
+    <tr><td>Dana Whitfield</td><td>Head Coach</td></tr>
+    <tr><td>Robin Astley</td><td>Assistant</td></tr>
+    <tr><td>Lee Sandoval</td><td>Assistant</td></tr>
+    <tr><td>Pat Devlin</td><td>Trainer</td></tr>
+    <tr><td>Chris Mara</td><td>Manager</td></tr>
+    <tr><td>Sam Okafor</td><td>Volunteer</td></tr>
+  </table>
+</td></tr></table></form></body></html>`;
+
+  // A nested table used to swallow its parent's match, so the page came back as
+  // one garbled table instead of two clean ones.
+  const t = parseHTMLTables(page);
+  eq('both inner tables are found', t.length, 2);
+  eq('the roster keeps its own rows', t[0].length, 4);
+  eq('and the coaches theirs', t[1].length, 7);
+
+  // Size used to beat the header score outright, so the longest table with
+  // anything name-shaped in it won — here, the coaching staff.
+  const srv = http.createServer((q, r) => { r.writeHead(200, { 'Content-Type': 'text/html' }); r.end(page); });
+  await new Promise((ok2) => srv.listen(8793, '127.0.0.1', ok2));
+  const out = await importRosterFromURL('http://127.0.0.1:8793/roster');
+  srv.close();
+
+  eq('the roster is picked, not the longer table', out.players.length, 3);
+  eq('and it really is the players', out.players.map((p) => p.name).join(','),
+    'Alex Rivera,Jordan Blake,Casey Nolan');
+  // `norm` strips punctuation, so a column headed "#" mapped to nothing and
+  // every jersey number imported blank.
+  eq('a "#" column is read as the jersey number', out.players.map((p) => p.number).join(','), '00,7,14');
+  eq('and the grade column comes with it', out.players[0].year, '12');
+}
 
 console.log('\n== stat import (HUDL/MaxPreps headings) ==');
 const si = parseStatsCSV('Name,Comp,Att,Pass Yds,TD,INT\nJohn Smith,120,200,1850,18,6', 'football');

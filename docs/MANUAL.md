@@ -86,11 +86,16 @@ look identical on a graphic.
 
 ### Before each game — rosters
 
-**Teams** tab → pick team + sport → import the roster one of three ways:
+The **Teams** tab is about one team at a time. Pick it from the selector at the
+top and everything below — its details, its roster, its season history — is that
+team's. **+ New Team** clears the form for a new one.
+
+Pick team + sport, then import the roster one of three ways (under **Import
+players or stats**):
 
 1. **From a URL.** Paste a CIAC roster page such as
    `https://ciac.fpsports.org/DashboardTeamRoster.aspx?SeasonRoster=1`
-   and hit **Preview from URL** to check it before saving, then **Import from URL**.
+   and hit **Preview** to check it before saving, then **Import Roster**.
    Any page with an HTML roster table works — the parser finds the table with a
    name column and reads Number / Name / Position / Grade / Level.
 2. **Paste CSV/TSV** from HUDL, MaxPreps or a spreadsheet. Headers are detected
@@ -100,8 +105,25 @@ look identical on a graphic.
 
 Imports **merge** by default, so re-importing an updated export refreshes existing
 players (matched on name, so a jersey change updates rather than duplicates)
-without wiping anyone you added by hand. Tick **Replace instead of merge** to
-start clean.
+without wiping anyone you added by hand. Tick **Replace the roster instead of
+merging into it** to start clean.
+
+### The roster editor
+
+It tells you what state it is in rather than leaving you to guess:
+
+- **A player count**, and an **Unsaved changes** marker the moment you type.
+  Leaving the tab with unsaved edits asks first.
+- **Duplicate numbers are flagged** and the offending rows outlined. This is the
+  one worth watching: stats are keyed per player, but a graphic only ever shows
+  the number, so two players sharing one surfaces on air rather than here.
+- **Rows with no name are flagged** and dropped on save — the save message says
+  how many went.
+- **Sort by number** puts the roster in jersey order, numerically, with blanks
+  at the bottom.
+
+Editing a team's **name** now edits that team. It used to save a second team
+under a new id and leave the original behind.
 
 Season stats from a HUDL/MaxPreps export can be brought in with **Import Season
 Stats CSV** — useful for having opponent numbers ready before kickoff. Ambiguous

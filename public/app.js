@@ -28,7 +28,7 @@ const S = {
   gameId: null, sport: null, state: null,
   side: 'home',
   sticky: { home: {}, away: {} },
-  statsView: 'team', showArchived: false,
+  statsView: 'team', showArchived: false, editingTeamId: null, rosterDirty: false,
   sources: {}, suggestedMap: null, importText: '', aux: null,
   clock: { base: 0, at: 0, running: false, down: true },
   rosterEdit: []
@@ -73,7 +73,7 @@ function fillSelect(sel, pairs, keep = false) {
 
 function refreshTeamSelects() {
   const pairs = S.teams.map((t) => [t.id, t.name]);
-  for (const s of ['#ng-away', '#ng-home', '#rs-team', '#ex-team']) fillSelect(s, pairs, true);
+  for (const s of ['#ng-away', '#ng-home', '#tm-team', '#ex-team']) fillSelect(s, pairs, true);
   // Don't default both sides of a matchup to the same team.
   if (pairs.length > 1 && $('#ng-home').value === $('#ng-away').value) {
     $('#ng-home').value = pairs.find(([id]) => id !== $('#ng-away').value)[0];
@@ -116,10 +116,21 @@ function bindChrome() {
 
   $('#ng-create').onclick = createGame;
   $('#tm-save').onclick = saveTeam;
+  $('#rs-load').onclick = loadTeamTab;
   $('#rs-load').onclick = loadRoster;
   $('#rs-save').onclick = saveRoster;
-  $('#rs-addrow').onclick = () => { S.rosterEdit.push({ number: '', name: '', pos: '', year: '' }); renderRosterTable(); };
-  $('#rs-csv').onclick = () => window.open(`/api/teams/${$('#rs-team').value}/export/roster.csv?sport=${$('#rs-sport').value}`);
+  $('#rs-addrow').onclick = () => {
+    if (!currentTeamId()) return;
+    S.rosterEdit.push({ number: '', name: '', pos: '', year: '' });
+    S.rosterDirty = true;
+    renderRosterTable();
+    const last = S.rosterEdit.length - 1;
+    $(`input[data-i="${last}"][data-k="number"]`, $('#rostertable'))?.focus();
+  };
+  $('#rs-csv').onclick = () => {
+    const id = currentTeamId(); if (!id) return;
+    window.open(`/api/teams/${id}/export/roster.csv?sport=${$('#rs-sport').value}`);
+  };
   $('#rs-url-preview').onclick = () => importRoster({ url: $('#rs-url').value, preview: true });
   $('#rs-url-import').onclick = () => importRoster({ url: $('#rs-url').value });
   $('#rs-paste-import').onclick = () => importRoster({ csv: $('#rs-paste').value });
@@ -176,19 +187,34 @@ function bindChrome() {
   $('#rs-paste').oninput = () => showDetectedFormat($('#rs-paste').value);
   $('#rs-stats-preview').onclick = () => importStats(true);
   $('#hist-load').onclick = loadHistory;
-  $('#hist-csv').onclick = () => window.open(
-    `/api/teams/${$('#rs-team').value}/export/season.csv?sport=${$('#rs-sport').value}&season=${encodeURIComponent(S.cfg.season || '')}`);
+  $('#hist-csv').onclick = () => {
+    const id = currentTeamId(); if (!id) return;
+    window.open(`/api/teams/${id}/export/season.csv?sport=${$('#rs-sport').value}&season=${encodeURIComponent(S.cfg.season || '')}`);
+  };
+  // One selector drives the tab, so changing it reloads everything below it.
+  $('#tm-team').onchange = () => selectTeam($('#tm-team').value);
+  $('#rs-sport').onchange = () => { if (currentTeamIdQuiet()) loadTeamTab(); };
+  $('#tm-new').onclick = newTeam;
 
   document.addEventListener('keydown', onKey);
 }
 
 function go(tab) {
+  if (S.rosterDirty && tab !== 'teams'
+      && !confirm('The roster has unsaved changes. Leave without saving?')) return;
+  if (tab !== 'teams') S.rosterDirty = false;
   $$('.tab').forEach((b) => b.classList.toggle('active', b.dataset.tab === tab));
   $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${tab}`));
   if (tab === 'stats') renderStats();
   if (tab === 'export') renderExport();
   if (tab === 'vmix') renderVmix();
   if (tab === 'setup') renderGameList();
+  // Opening the tab with a team already chosen should show that team's roster,
+  // not an empty table waiting for a button press. Unsaved edits are left be.
+  if (tab === 'teams' && !S.rosterDirty) {
+    if (!$('#tm-team').value && S.teams.length) $('#tm-team').value = S.teams[0].id;
+    selectTeam($('#tm-team').value);
+  }
 }
 
 /* ---------------------------- live stream ---------------------------- */
@@ -1204,66 +1230,202 @@ function renderGameList() {
 }
 
 /* ---------------------------- teams ---------------------------- */
+/** The selected team, with no complaint when there simply isn't one yet. */
+const currentTeamIdQuiet = () => $('#tm-team').value || null;
+
+/** Put a team's details in the form and load everything that belongs to it. */
+async function selectTeam(id) {
+  $('#tm-team').value = id || '';
+  const t = S.teams.find((x) => x.id === id);
+  $('#tm-name').value = t?.name || '';
+  $('#tm-short').value = t?.shortName || '';
+  $('#tm-abbr').value = t?.abbrev || '';
+  $('#tm-mascot').value = t?.mascot || '';
+  $('#tm-color').value = t?.primaryColor || '#1e40af';
+  $('#tm-color2').value = t?.secondaryColor || '#ffffff';
+  // Carried on save so renaming edits the team rather than creating a second
+  // one under a new slug — which is what happened before.
+  S.editingTeamId = t?.id || null;
+  $('#tm-note').textContent = t
+    ? `Editing ${t.name}. Its roster and season history are below.`
+    : 'New team — fill in the name and save. Only the name is required.';
+  await loadTeamTab();
+}
+
+function newTeam() {
+  S.rosterEdit = [];
+  renderRosterTable();
+  $('#histbody').innerHTML = '';
+  selectTeam('');
+  $('#tm-name').focus();
+}
+
+/** Roster, history and the headings that name the team they belong to. */
+async function loadTeamTab() {
+  const id = currentTeamIdQuiet();
+  const name = S.teams.find((t) => t.id === id)?.name || '';
+  const sport = S.sports.find((x) => x.id === $('#rs-sport').value)?.name || '';
+  const who = name ? `— ${name}${sport ? ' · ' + sport : ''}` : '';
+  $('#rs-who').textContent = who;
+  $('#hist-who').textContent = name ? `— ${name}` : '';
+  if (!id) {
+    S.rosterEdit = []; renderRosterTable();
+    $('#histbody').innerHTML = '<div class="hint">Pick a team to see its history.</div>';
+    return;
+  }
+  await loadRoster();
+  await loadHistory({ quiet: true });
+}
+
 async function saveTeam() {
+  const name = $('#tm-name').value.trim();
+  if (!name) return toast('A team needs a name', 'err');
   try {
     const t = await api('/api/teams', {
       method: 'POST',
       body: JSON.stringify({
-        name: $('#tm-name').value, shortName: $('#tm-short').value,
+        ...(S.editingTeamId ? { id: S.editingTeamId } : {}),
+        name, shortName: $('#tm-short').value,
         abbrev: $('#tm-abbr').value, mascot: $('#tm-mascot').value,
         primaryColor: $('#tm-color').value, secondaryColor: $('#tm-color2').value
       })
     });
     S.teams = await api('/api/teams');
     refreshTeamSelects();
-    $('#rs-team').value = t.id;
+    await selectTeam(t.id);
     toast(`Saved ${t.name}`, 'ok');
   } catch (e) { toast(e.message, 'err'); }
 }
 
-async function loadRoster() {
-  const team = currentTeamId(); if (!team) return;
+async function loadRoster(opts = {}) {
+  const team = opts.quiet ? currentTeamIdQuiet() : currentTeamId();
+  if (!team) return;
   try {
     const r = await api(`/api/teams/${team}/roster?sport=${$('#rs-sport').value}`);
     S.rosterEdit = r.players.map((p) => ({ ...p }));
+    S.rosterDirty = false;
     renderRosterTable();
-    toast(`${r.players.length} players`);
   } catch (e) { toast(e.message, 'err'); }
 }
 
+/**
+ * The roster editor.
+ *
+ * It is a spreadsheet people retype under time pressure, so it says what state
+ * it is in: how many players, whether there is unsaved work, and which rows
+ * would cause trouble. Two jerseys with the same number is the one that really
+ * hurts — stats are keyed per player, but a graphic only ever shows the number,
+ * so the mistake surfaces on air rather than here.
+ */
 function renderRosterTable() {
   const wrap = $('#rostertable');
-  if (!S.rosterEdit.length) { wrap.innerHTML = '<div class="hint">No players loaded.</div>'; return; }
-  let h = '<div class="tblwrap"><table class="tbl"><thead><tr><th>#</th><th>Name</th><th>Pos</th><th>Yr</th><th></th></tr></thead><tbody>';
-  S.rosterEdit.forEach((p, i) => {
-    h += `<tr>
-      <td><input data-i="${i}" data-k="number" value="${esc(p.number ?? '')}" style="width:56px"></td>
-      <td><input data-i="${i}" data-k="name" value="${esc(p.name ?? '')}"></td>
-      <td><input data-i="${i}" data-k="pos" value="${esc(p.pos ?? '')}" style="width:70px"></td>
-      <td><input data-i="${i}" data-k="year" value="${esc(p.year ?? '')}" style="width:56px"></td>
-      <td><button data-del="${i}">✕</button></td></tr>`;
+  const rows = S.rosterEdit;
+
+  if (!currentTeamIdQuiet()) {
+    wrap.innerHTML = '<div class="hint">Pick a team above to edit its roster.</div>';
+    return;
+  }
+  if (!rows.length) {
+    wrap.innerHTML = '<div class="empty rosterempty">'
+      + '<p><b>No players yet.</b></p>'
+      + '<p class="nghint">Add them one at a time, or pull a whole roster in from a CIAC page, '
+      + 'a HUDL export or a spreadsheet.</p>'
+      + '<button class="primary" data-openimport="1">Import a roster →</button></div>';
+    $('[data-openimport]', wrap).onclick = () => {
+      const fold = $('#rs-importfold');
+      fold.open = true;
+      fold.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    };
+    return;
+  }
+
+  // Blank means "not filled in yet", so only real numbers can collide.
+  const counts = {};
+  for (const p of rows) {
+    const n = String(p.number ?? '').trim();
+    if (n) counts[n] = (counts[n] || 0) + 1;
+  }
+  const dupes = Object.keys(counts).filter((n) => counts[n] > 1);
+  const unnamed = rows.filter((p) => !String(p.name || '').trim()).length;
+
+  let h = '<div class="rosterbar">'
+    + `<span class="rcount">${rows.length} player${rows.length === 1 ? '' : 's'}</span>`;
+  if (S.rosterDirty) h += '<span class="rpill dirty">Unsaved changes</span>';
+  if (dupes.length) h += `<span class="rpill warn">Duplicate #${dupes.map(esc).join(', #')}</span>`;
+  if (unnamed) h += `<span class="rpill warn">${unnamed} row${unnamed === 1 ? '' : 's'} with no name — not saved</span>`;
+  h += '<button class="linkbtn" data-sort="1">Sort by number</button></div>';
+
+  h += '<div class="tblwrap"><table class="tbl roster"><thead><tr>'
+    + '<th style="width:70px">#</th><th>Name</th><th style="width:90px">Pos</th>'
+    + '<th style="width:70px">Yr</th><th style="width:44px"></th></tr></thead><tbody>';
+  rows.forEach((p, i) => {
+    const n = String(p.number ?? '').trim();
+    const dup = n && counts[n] > 1;
+    const noName = !String(p.name || '').trim();
+    h += `<tr${dup || noName ? ' class="rbad"' : ''}>
+      <td><input data-i="${i}" data-k="number" value="${esc(p.number ?? '')}"${dup ? ' class="bad" title="Another player already has this number"' : ''}></td>
+      <td><input data-i="${i}" data-k="name" value="${esc(p.name ?? '')}"${noName ? ' class="bad" placeholder="Name required"' : ''}></td>
+      <td><input data-i="${i}" data-k="pos" value="${esc(p.pos ?? '')}"></td>
+      <td><input data-i="${i}" data-k="year" value="${esc(p.year ?? '')}"></td>
+      <td><button data-del="${i}" title="Remove this player" class="rdel">✕</button></td></tr>`;
   });
   wrap.innerHTML = h + '</tbody></table></div>';
-  $$('input[data-i]', wrap).forEach((inp) => inp.oninput = () => {
-    S.rosterEdit[+inp.dataset.i][inp.dataset.k] = inp.value;
+
+  $$('input[data-i]', wrap).forEach((inp) => {
+    inp.oninput = () => {
+      S.rosterEdit[+inp.dataset.i][inp.dataset.k] = inp.value;
+      S.rosterDirty = true;
+      // Only the number and name drive the warnings, so only they need a redraw
+      // — repainting on every keystroke would cost the caret its place.
+      if (inp.dataset.k === 'number' || inp.dataset.k === 'name') {
+        const at = inp.selectionStart;
+        renderRosterTable();
+        const again = $(`input[data-i="${inp.dataset.i}"][data-k="${inp.dataset.k}"]`, $('#rostertable'));
+        if (again) { again.focus(); try { again.setSelectionRange(at, at); } catch { /* number inputs */ } }
+      }
+    };
   });
   $$('[data-del]', wrap).forEach((b) => b.onclick = () => {
-    S.rosterEdit.splice(+b.dataset.del, 1); renderRosterTable();
+    const p = S.rosterEdit[+b.dataset.del];
+    const label = [p.number, p.name].filter(Boolean).join(' ') || 'this row';
+    if (String(p.name || '').trim() && !confirm(`Remove ${label} from the roster?`)) return;
+    S.rosterEdit.splice(+b.dataset.del, 1);
+    S.rosterDirty = true;
+    renderRosterTable();
   });
+  const sort = $('[data-sort]', wrap);
+  if (sort) sort.onclick = () => {
+    // Numbers first, in numeric order — "9" belongs before "10", and a blank
+    // row belongs at the bottom where it is about to be filled in.
+    S.rosterEdit.sort((a, b) => {
+      const na = parseInt(a.number, 10), nb = parseInt(b.number, 10);
+      if (Number.isNaN(na) && Number.isNaN(nb)) return String(a.name || '').localeCompare(String(b.name || ''));
+      if (Number.isNaN(na)) return 1;
+      if (Number.isNaN(nb)) return -1;
+      return na - nb;
+    });
+    S.rosterDirty = true;
+    renderRosterTable();
+  };
 }
 
 async function saveRoster() {
   const team = currentTeamId(); if (!team) return;
   try {
+    // Counted before the filter: the rows dropped are the ones being removed
+    // here, so comparing against the server's reply would always read zero.
+    const before = S.rosterEdit.length;
     const players = S.rosterEdit.filter((p) => String(p.name || '').trim());
+    const dropped = before - players.length;
     const r = await api(`/api/teams/${team}/roster`, {
       method: 'POST',
       body: JSON.stringify({ sport: $('#rs-sport').value, players, mode: 'replace' })
     });
     S.rosterEdit = r.roster.map((p) => ({ ...p }));
+    S.rosterDirty = false;
     renderRosterTable();
     if (S.gameId) await refreshState();
-    toast(`Saved ${r.count} players`, 'ok');
+    toast(`Saved ${r.count} players${dropped > 0 ? ` · ${dropped} unnamed row${dropped === 1 ? '' : 's'} dropped` : ''}`, 'ok');
   } catch (e) { toast(e.message, 'err'); }
 }
 
@@ -1296,7 +1458,7 @@ async function importTeamSheet(preview) {
 
 /** Guard every team-scoped call: an empty select would build /api/teams//… */
 function currentTeamId() {
-  const id = $('#rs-team').value;
+  const id = $('#tm-team').value;
   if (!id) {
     const msg = S.teams.length
       ? 'Pick a team from the Team dropdown first.'
@@ -1413,8 +1575,9 @@ async function importStats(preview = false) {
 }
 
 /* ---------------------------- season history ---------------------------- */
-async function loadHistory() {
-  const team = currentTeamId(); if (!team) return;
+async function loadHistory(opts = {}) {
+  const team = opts.quiet ? currentTeamIdQuiet() : currentTeamId();
+  if (!team) return;
   const body = $('#histbody');
   body.innerHTML = 'Loading…';
   try {

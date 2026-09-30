@@ -178,6 +178,39 @@ console.log('\n== a roster page with more than one table ==');
   eq('and the grade column comes with it', out.players[0].year, '12');
 }
 
+console.log('\n== a roster split across side-by-side tables ==');
+{
+  // How CIAC actually lays out a squad: one roster in three tables side by
+  // side, each with the same header, inside a layout table. Reading only the
+  // best one imported the first column and silently dropped the rest — a
+  // 90-player football roster came in as 30.
+  const col = (rows) => '<table><tr><th>Level</th><th>No</th><th>Name</th><th>Position</th><th>Grade</th></tr>'
+    + rows.map(([n, nm, p, g]) => `<tr><td>V</td><td>${n}</td><td>${nm}</td><td>${p}</td><td>${g}</td></tr>`).join('')
+    + '</table>';
+  const page = `<html><head><title>Team Roster</title></head><body><form>
+    <table id="layout"><tr>
+      <td>${col([['0', 'Alex Rivera', 'DB', '12'], ['1', 'Jordan Blake', 'WR', '11']])}</td>
+      <td>${col([['28', 'Casey Nolan', 'RB', '10'], ['29', 'Sam Okafor', 'LB', '10']])}</td>
+      <td>${col([['65', 'Drew Halloran', 'OL', '11']])}</td>
+    </tr></table>
+    <table id="coaches"><tr><th>Name</th><th>Role</th></tr>
+      ${Array.from({ length: 12 }, (_, i) => `<tr><td>Coach ${i + 1}</td><td>Assistant</td></tr>`).join('')}
+    </table></form></body></html>`;
+
+  const srv2 = http.createServer((q, r) => { r.writeHead(200, { 'Content-Type': 'text/html' }); r.end(page); });
+  await new Promise((ok2) => srv2.listen(8794, '127.0.0.1', ok2));
+  const out = await importRosterFromURL('http://127.0.0.1:8794/roster');
+  srv2.close();
+
+  eq('every column of the roster is read', out.players.length, 5);
+  eq('in page order', out.players.map((p) => p.number).join(','), '0,1,28,29,65');
+  ok('the coaching staff is not merged in', !out.players.some((p) => /^Coach /.test(p.name)),
+    out.players.map((p) => p.name).join(','));
+  ok('and the split is reported rather than silent',
+    out.warnings.some((w) => /split across 3 tables/.test(w)), out.warnings.join(' | '));
+  eq('the Level column still maps', out.players[0].level, 'V');
+}
+
 console.log('\n== stat import (HUDL/MaxPreps headings) ==');
 const si = parseStatsCSV('Name,Comp,Att,Pass Yds,TD,INT\nJohn Smith,120,200,1850,18,6', 'football');
 eq('stat rows', si.players.length, 1);

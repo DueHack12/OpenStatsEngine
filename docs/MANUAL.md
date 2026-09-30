@@ -96,8 +96,16 @@ players or stats**):
 1. **From a URL.** Paste a CIAC roster page such as
    `https://ciac.fpsports.org/DashboardTeamRoster.aspx?SeasonRoster=1`
    and hit **Preview** to check it before saving, then **Import Roster**.
-   Any page with an HTML roster table works — the parser finds the table with a
-   name column and reads Number / Name / Position / Grade / Level.
+   Any page with an HTML roster table works, including the ones that lay a
+   squad out as several tables side by side — CIAC does this, and a long
+   football roster arrives as three columns. Tables sharing the winner's exact
+   header are read as one roster, and the import tells you how many it merged.
+
+   Where a page carries genuinely different tables — a roster next to a
+   coaching staff or a results grid — the one whose header names the most
+   roster columns wins, with size only as a tie-break, so a long staff list
+   cannot displace a short squad. A column headed simply `#` is read as the
+   jersey number.
 2. **Paste CSV/TSV** from HUDL, MaxPreps or a spreadsheet. Headers are detected
    automatically, including `Jersey`/`No`/`#`, split `First Name`/`Last Name`
    columns, and `Last, First` name order.
@@ -864,7 +872,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 611 tests on a fresh clone (623 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 623 tests on a fresh clone (635 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
 scorebot normalisation, field-source gating, feed-loss and stalled-feed detection,
 board-vs-entered score separation, baseball bases/count, per-sport scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

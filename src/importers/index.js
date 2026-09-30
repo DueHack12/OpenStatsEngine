@@ -23,7 +23,11 @@ const ALIAS = {
 function mapHeaders(header) {
   const map = {};
   header.forEach((h, i) => {
-    const n = norm(h);
+    // `norm` strips punctuation, so a column headed just "#" — which is how
+    // most roster pages label the jersey — normalised to an empty string and
+    // matched nothing, quietly importing every player without a number.
+    const raw = String(h || '').trim();
+    const n = /^#+$/.test(raw) || /^#\s*$/.test(raw) ? 'no' : norm(h);
     for (const [field, aliases] of Object.entries(ALIAS)) {
       if (aliases.includes(n)) { if (map[field] == null) map[field] = i; }
     }
@@ -111,15 +115,44 @@ export async function importRosterFromURL(url) {
   }
 
   const tables = parseHTMLTables(body);
-  let best = null, bestMap = null, bestHeader = -1;
+
+  /*
+   * Find every table that looks like a roster, then keep the ones that are the
+   * same roster.
+   *
+   * CIAC lays a single squad out as three side-by-side tables with identical
+   * headers, so reading only the best one imported the first column of players
+   * and silently dropped the rest — a 90-player football roster came in as 30.
+   * Tables whose header matches the winner's exactly are treated as a
+   * continuation of it and concatenated in document order.
+   *
+   * Matching on the exact header is what keeps that safe: a coaching staff or a
+   * results grid alongside the roster has a different header, so it is scored
+   * against the roster and loses rather than being merged into it. Size is only
+   * ever a tie-break, never a way to win outright.
+   */
+  const signature = (header) => header.map(norm).join('|');
+  const candidates = [];
   for (const rows of tables) {
+    let bestForTable = null;
     for (let i = 0; i < Math.min(rows.length, 3); i++) {
-      const m = mapHeaders(rows[i]);
-      const score = (m.name != null ? 2 : 0) + (m.number != null ? 1 : 0) + (m.pos != null ? 1 : 0);
-      if (m.name != null && (!best || score > best.score || rows.length > best.rows.length)) {
-        best = { rows, score }; bestMap = m; bestHeader = i;
-      }
+      const header = rows[i];
+      if (header.length < 2) continue;                 // a single cell is a layout table
+      if (i + 1 >= rows.length) continue;              // a header with nothing under it
+      const m = mapHeaders(header);
+      if (m.name == null) continue;
+      const score = (m.name != null ? 3 : 0) + (m.number != null ? 2 : 0)
+        + (m.pos != null ? 1 : 0) + (m.year != null ? 1 : 0)
+        + (m.height != null ? 1 : 0) + (m.weight != null ? 1 : 0);
+      const cand = { rows, map: m, header: i, score, dataRows: rows.length - i - 1, sig: signature(header) };
+      if (!bestForTable || cand.score > bestForTable.score) bestForTable = cand;
     }
+    if (bestForTable) candidates.push(bestForTable);   // one candidate per table
+  }
+
+  let best = null;
+  for (const c of candidates) {
+    if (!best || c.score > best.score || (c.score === best.score && c.dataRows > best.dataRows)) best = c;
   }
   if (!best) {
     const title = (body.match(/<title>([\s\S]*?)<\/title>/i) || [])[1] || '';
@@ -127,23 +160,36 @@ export async function importRosterFromURL(url) {
       `If the page needs a team selected first, copy the URL after selecting the team, or export a CSV instead.`);
   }
 
+  const parts = candidates.filter((c) => c.sig === best.sig);
+  const bestMap = best.map;
+
   const map = bestMap;
   const players = [];
-  for (let i = bestHeader + 1; i < best.rows.length; i++) {
-    const r = best.rows[i];
-    const name = fixName(r[map.name] ?? '');
-    if (!name || /^(total|team|totals|no players)/i.test(name)) continue;
-    players.push({
-      number: String(map.number != null ? (r[map.number] ?? '') : '').trim(),
-      name,
-      pos: String(map.pos != null ? (r[map.pos] ?? '') : '').trim(),
-      year: String(map.year != null ? (r[map.year] ?? '') : '').trim(),
-      height: String(map.height != null ? (r[map.height] ?? '') : '').trim(),
-      weight: String(map.weight != null ? (r[map.weight] ?? '') : '').trim(),
-      level: String(map.level != null ? (r[map.level] ?? '') : '').trim()
-    });
+  for (const part of parts) {
+    for (let i = part.header + 1; i < part.rows.length; i++) {
+      const r = part.rows[i];
+      const name = fixName(r[map.name] ?? '');
+      if (!name || /^(total|team|totals|no players)/i.test(name)) continue;
+      // A repeated header — these tables carry one each — is not a player.
+      if (norm(name) === norm(part.rows[part.header][map.name] ?? '')) continue;
+      players.push({
+        number: String(map.number != null ? (r[map.number] ?? '') : '').trim(),
+        name,
+        pos: String(map.pos != null ? (r[map.pos] ?? '') : '').trim(),
+        year: String(map.year != null ? (r[map.year] ?? '') : '').trim(),
+        height: String(map.height != null ? (r[map.height] ?? '') : '').trim(),
+        weight: String(map.weight != null ? (r[map.weight] ?? '') : '').trim(),
+        level: String(map.level != null ? (r[map.level] ?? '') : '').trim()
+      });
+    }
   }
-  return { players, warnings: players.length ? [] : ['Table found but no player rows parsed.'], source: url, kind: 'html' };
+
+  const warnings = [];
+  if (!players.length) warnings.push('Table found but no player rows parsed.');
+  else if (parts.length > 1) {
+    warnings.push(`Roster was split across ${parts.length} tables on the page; all of them were read.`);
+  }
+  return { players, warnings, source: url, kind: 'html', tables: parts.length };
 }
 
 /* ------------------------------------------------------------------ *

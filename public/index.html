@@ -228,76 +228,106 @@
 
 <!-- ============================ TEAMS ============================ -->
 <section id="view-teams" class="view">
+
+  <!-- One team drives this whole tab: its details, its roster, its history. -->
   <div class="card">
-    <h2>Add / Edit Team</h2>
-    <div class="grid2">
+    <div class="cardtop">
+      <h2>Team</h2>
+      <div class="row" style="margin:0">
+        <select id="tm-team" class="teampick"></select>
+        <button id="tm-new">+ New Team</button>
+      </div>
+    </div>
+    <p class="hint" id="tm-note">Pick a team to edit it, or add a new one. Its roster and season history are below.</p>
+
+    <div class="teamgrid">
       <label>Name<input id="tm-name" placeholder="Newtown High School"></label>
       <label>Short Name<input id="tm-short" placeholder="Newtown"></label>
       <label>Abbrev<input id="tm-abbr" placeholder="NHS" maxlength="5"></label>
       <label>Mascot<input id="tm-mascot" placeholder="Nighthawks"></label>
-      <label>Primary Color<input id="tm-color" type="color" value="#1e40af"></label>
-      <label>Secondary Color<input id="tm-color2" type="color" value="#ffffff"></label>
+      <div class="colourpair">
+        <label>Primary Colour<input id="tm-color" type="color" value="#1e40af"></label>
+        <label>Secondary Colour<input id="tm-color2" type="color" value="#ffffff"></label>
+      </div>
     </div>
     <button class="primary" id="tm-save">Save Team</button>
+  </div>
 
-    <div class="importbox">
-      <h3>Import all teams from a Google Sheet</h3>
+  <div class="card">
+    <div class="cardtop">
+      <h2>Roster <span class="subtle" id="rs-who"></span></h2>
+      <label class="inline">Sport&nbsp;<select id="rs-sport"></select></label>
+    </div>
+    <div class="row">
+      <button id="rs-addrow">+ Add Player</button>
+      <button id="rs-save" class="primary">Save Roster</button>
+      <button id="rs-csv">Download CSV</button>
+      <button id="rs-load">Reload</button>
+    </div>
+    <div id="rostertable"></div>
+
+    <details class="fold" id="rs-importfold">
+      <summary>Import players or stats</summary>
+
+      <div class="foldbody">
+        <div class="impway">
+          <h4>From a web page</h4>
+          <p class="hint">A CIAC roster page, or any page with a roster table.</p>
+          <input id="rs-url" placeholder="https://ciac.fpsports.org/DashboardTeamRoster.aspx?SeasonRoster=1">
+          <div class="row">
+            <button id="rs-url-preview">Preview</button>
+            <button id="rs-url-import" class="primary">Import Roster</button>
+          </div>
+        </div>
+
+        <div class="impway">
+          <h4>From a file, or pasted text</h4>
+          <p class="hint">HUDL per-game export, a saved HUDL season page, a MaxPreps CSV, or any spreadsheet. The format is detected for you.</p>
+          <div class="row">
+            <input type="file" id="rs-file" accept=".csv,.tsv,.txt,.html,.htm,.xml">
+            <span id="rs-detect" class="hint" style="margin:0"></span>
+          </div>
+          <textarea id="rs-paste" rows="4" placeholder="Number,Name,Position,Grade&#10;12,John Smith,QB,11"></textarea>
+          <div class="row">
+            <button id="rs-paste-import" class="primary">Import as Roster</button>
+            <label class="inline"><input type="checkbox" id="rs-replace"> Replace the roster instead of merging into it</label>
+          </div>
+          <div class="row">
+            <button id="rs-stats-preview">Preview Stats</button>
+            <button id="rs-stats-import">Import as Stats</button>
+            <span class="hint" style="margin:0">Adds game numbers to this team's season totals rather than its roster.</span>
+          </div>
+        </div>
+
+        <pre id="rs-out" class="out"></pre>
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <div class="cardtop">
+      <h2>Season History <span class="subtle" id="hist-who"></span></h2>
+      <div class="row" style="margin:0">
+        <button id="hist-load">Reload</button>
+        <button id="hist-csv">Download Season CSV</button>
+      </div>
+    </div>
+    <p class="hint">Every game logged against this team. Pull up what they did to you in September before you play them again in November.</p>
+    <div id="histbody"></div>
+  </div>
+
+  <details class="fold">
+    <summary>Set up every team at once, from a Google Sheet</summary>
+    <div class="foldbody">
       <p class="hint">Pulls every school from the <b>Validation</b> tab and team colours from the <b>Pics</b> tab (rows marked "TD Color"). Safe to re-run — teams merge by name, so rosters and logged games are untouched. The sheet must be shared as "Anyone with the link".</p>
-      <label class="wide2"><input id="tm-sheet" placeholder="https://docs.google.com/spreadsheets/d/…"></label>
+      <input id="tm-sheet" placeholder="https://docs.google.com/spreadsheets/d/…">
       <div class="row">
         <button id="tm-sheet-preview">Preview</button>
         <button id="tm-sheet-import" class="primary">Import All Teams</button>
       </div>
       <pre id="tm-sheet-out" class="out"></pre>
     </div>
-  </div>
-
-  <div class="card">
-    <h2>Roster</h2>
-    <div class="grid2">
-      <label>Team<select id="rs-team"></select></label>
-      <label>Sport<select id="rs-sport"></select></label>
-    </div>
-    <div class="row">
-      <button id="rs-load">Load Roster</button>
-      <button id="rs-addrow">+ Add Player</button>
-      <button id="rs-save" class="primary">Save Roster</button>
-      <button id="rs-csv">Download CSV</button>
-    </div>
-    <div class="importbox">
-      <h3>Import</h3>
-      <label class="wide2">From URL (CIAC roster page, or any page with a roster table)
-        <input id="rs-url" placeholder="https://ciac.fpsports.org/DashboardTeamRoster.aspx?SeasonRoster=1"></label>
-      <div class="row">
-        <button id="rs-url-preview">Preview from URL</button>
-        <button id="rs-url-import">Import from URL</button>
-      </div>
-      <label class="wide2">Or drop a file / paste text — HUDL per-game export, saved HUDL season page, MaxPreps CSV, or any spreadsheet. The format is detected for you.
-        <textarea id="rs-paste" rows="4" placeholder="Number,Name,Position,Grade&#10;12,John Smith,QB,11"></textarea></label>
-      <div class="row">
-        <input type="file" id="rs-file" accept=".csv,.tsv,.txt,.html,.htm,.xml">
-        <span id="rs-detect" class="hint" style="margin:0"></span>
-      </div>
-      <div class="row">
-        <button id="rs-paste-import">Import as Roster</button>
-        <button id="rs-stats-preview">Preview Stats</button>
-        <button id="rs-stats-import">Import as Stats</button>
-        <label class="inline"><input type="checkbox" id="rs-replace"> Replace instead of merge</label>
-      </div>
-      <pre id="rs-out" class="out"></pre>
-    </div>
-    <div id="rostertable"></div>
-  </div>
-
-  <div class="card">
-    <h2>Season History</h2>
-    <p class="hint">Every game logged against this team, kept for the whole season. Pull up what they did to you in September before you play them again in November.</p>
-    <div class="row">
-      <button id="hist-load">Load History</button>
-      <button id="hist-csv">Download Season CSV</button>
-    </div>
-    <div id="histbody"></div>
-  </div>
+  </details>
 </section>
 
 <!-- ============================ EXPORT ============================ -->

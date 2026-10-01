@@ -159,6 +159,11 @@ A typical football play is four taps. Fields marked *optional* stay collapsed
 behind **+ add** so the common case stays fast, and an optional field you never
 touch is not recorded.
 
+When the roster lists positions, tabs above the jersey grid — **All**, **QB**,
+**RB**, **WR**… — narrow it to one position. Two-way players (`WR/DB`) appear
+under both. Each field remembers the tab you last used, so the receiver grid on
+the next completion opens straight onto the receivers.
+
 Fields marked sticky (the QB, the kicker, the goalie) remember the last player you
 picked for that team, so a passing series is receiver + yards + save.
 

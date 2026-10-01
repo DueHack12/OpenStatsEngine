@@ -811,13 +811,13 @@ function renderSheetFields() {
       body.appendChild(playerGrid(f.type === 'player' ? side : other, () => vals[f.name], (id) => {
         setVal(vals[f.name] === id ? null : id);
         renderSheetFields();
-      }));
+      }, false, `${action.key}:${f.name}`));
     } else if (f.type === 'players' || f.type === 'players_opp') {
       body.appendChild(playerGrid(f.type === 'players' ? side : other, () => vals[f.name] || [], (id) => {
         const cur = vals[f.name] || [];
         setVal(cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]);
         renderSheetFields();
-      }, true));
+      }, true, `${action.key}:${f.name}`));
     } else if (f.type === 'number') {
       if (SHEET.activeNum == null) SHEET.activeNum = f.name;
       body.appendChild(numpad(f, () => vals[f.name], setVal));
@@ -853,24 +853,85 @@ function playerLabel(side, id) {
   return p ? `#${p.number} ${p.name}` : id;
 }
 
-function playerGrid(side, getVal, onPick, multi = false) {
+/** The positions a roster entry plays: "QB/DB" and "WR, CB" are both two-way. */
+const playerPositions = (p) => String(p.pos || '').toUpperCase().split(/[\s/,;|&+]+/).filter(Boolean);
+
+// Common positions in the order an operator looks for them. Anything a roster
+// uses that is not listed here follows, alphabetically.
+const POS_ORDER = [
+  'QB', 'RB', 'HB', 'FB', 'WR', 'TE', 'OL', 'C', 'G', 'T', 'OT', 'OG', 'DL', 'DE', 'DT', 'NT',
+  'LB', 'OLB', 'ILB', 'MLB', 'DB', 'CB', 'S', 'FS', 'SS', 'K', 'P', 'LS', 'KR', 'PR', 'ATH',
+  'PG', 'SG', 'SF', 'PF', 'GK', 'D', 'DEF', 'M', 'MID', 'F', 'FW', 'FWD', 'W', 'LW', 'RW',
+  'A', 'ATT', 'LSM', 'FO', 'SP', 'RP', '1B', '2B', '3B', 'LF', 'CF', 'RF', 'DH', 'UT'
+];
+
+function sortPositions(list) {
+  const rank = (x) => { const i = POS_ORDER.indexOf(x); return i < 0 ? Infinity : i; };
+  return list.sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
+
+// The position tab last chosen for each field of each play, so a run of
+// receptions opens straight onto the receivers. Kept for the session only.
+const POS_TAB = {};
+
+/**
+ * Jersey grid for picking players, with a row of position tabs above it when
+ * the roster lists more than one position. `tabKey` names the field the tab
+ * choice is remembered under.
+ */
+function playerGrid(side, getVal, onPick, multi = false, tabKey = null) {
+  const wrap = el('div', 'pwrap');
   const grid = el('div', 'pgrid');
   const roster = S.state.rosters[side] || [];
   if (!roster.length) {
     const w = el('div', 'hint', `No roster loaded for ${S.state.teams[side].name}. Add one in the Teams tab, or entries will save without a player.`);
     grid.appendChild(w);
-    return grid;
+    wrap.appendChild(grid);
+    return wrap;
   }
   const cur = getVal();
-  for (const p of roster) {
-    const sel = multi ? (cur || []).includes(p.id) : cur === p.id;
-    const c = el('button', 'pcell' + (sel ? ' sel' : ''));
-    c.appendChild(el('span', 'num', p.number || '–'));
-    c.appendChild(el('span', 'nm', p.name || ''));
-    c.onclick = () => onPick(p.id);
-    grid.appendChild(c);
+  const isSel = (p) => multi ? (cur || []).includes(p.id) : cur === p.id;
+  const positions = sortPositions([...new Set(roster.flatMap(playerPositions))]);
+
+  let tab = (tabKey && POS_TAB[tabKey]) || 'ALL';
+  if (!positions.includes(tab)) tab = 'ALL';
+  // Never open onto a tab that hides who is already picked, e.g. when editing
+  // a play whose player sits under a different position.
+  const inTab = (p, t) => t === 'ALL' || playerPositions(p).includes(t);
+  if (roster.some((p) => isSel(p) && !inTab(p, tab))) tab = 'ALL';
+
+  const paint = () => {
+    grid.innerHTML = '';
+    const shown = roster.filter((p) => inTab(p, tab));
+    for (const p of shown) {
+      const c = el('button', 'pcell' + (isSel(p) ? ' sel' : ''));
+      c.appendChild(el('span', 'num', p.number || '–'));
+      c.appendChild(el('span', 'nm', p.name || ''));
+      c.onclick = () => onPick(p.id);
+      grid.appendChild(c);
+    }
+    if (!shown.length) grid.appendChild(el('div', 'hint', `No ${tab} on this roster.`));
+  };
+
+  if (positions.length > 1) {
+    const tabs = el('div', 'postabs');
+    for (const t of ['ALL', ...positions]) {
+      const count = t === 'ALL' ? roster.length : roster.filter((p) => inTab(p, t)).length;
+      const b = el('button', 'postab' + (t === tab ? ' on' : ''), t === 'ALL' ? 'All' : t);
+      b.title = `${count} player${count === 1 ? '' : 's'}`;
+      b.onclick = () => {
+        tab = t;
+        if (tabKey) POS_TAB[tabKey] = t;
+        $$('.postab', tabs).forEach((x) => x.classList.toggle('on', x === b));
+        paint();
+      };
+      tabs.appendChild(b);
+    }
+    wrap.appendChild(tabs);
   }
-  return grid;
+  paint();
+  wrap.appendChild(grid);
+  return wrap;
 }
 
 function numpad(f, getVal, setVal) {

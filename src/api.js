@@ -12,7 +12,7 @@ import { importTeamsFromSheet } from './importers/sheets.js';
 import { localStamp } from './util.js';
 import { FEED_FIELDS } from './integrations/scorebot.js';
 import { VERSION, packaged } from './runtime.js';
-import { checkForUpdate } from './update.js';
+import { checkUpdates, getChannel, setChannel, defaultChannel, CHANNELS } from './update.js';
 import { resolveDataDir, inspectDataDir, chooseDataDir, readSettings, settingsPath, normalizePath } from './datadir.js';
 
 const raw = (body, type, filename, status = 200) => ({ __raw: true, body, type, filename, status });
@@ -116,11 +116,25 @@ export function registerRoutes(route, ctx) {
     return { ...r, ...dataDirInfo() };
   });
 
-  // A newer release, if there is one: { current, packaged, update: {version, name, url} | null }.
-  route('GET', '/api/update', async () => ({
-    current: VERSION, packaged,
-    update: await checkForUpdate({ enabled: ctx.updateCheck !== false })
-  }));
+  // The update channel, and whether a newer release is out on it.
+  const updateInfo = async (opts = {}) => {
+    const r = await checkUpdates({ enabled: ctx.updateCheck !== false, ...opts });
+    return {
+      current: VERSION, packaged, channel: getChannel(), defaultChannel: defaultChannel(),
+      enabled: ctx.updateCheck !== false, checked: r.checked, update: r.update
+    };
+  };
+
+  route('GET', '/api/update', () => updateInfo());
+
+  // { channel?: 'stable' | 'beta' } — choose a channel; checks GitHub again either way.
+  route('POST', '/api/update', async ({ body }) => {
+    if (body?.channel != null) {
+      if (!CHANNELS.includes(body.channel)) bad(`Channel must be one of: ${CHANNELS.join(', ')}`);
+      setChannel(body.channel);
+    }
+    return updateInfo({ force: true });
+  });
 
   route('POST', '/api/config', ({ body }) => {
     // read the *merged* value, since an unset source still defaults to scorebot

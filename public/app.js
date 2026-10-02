@@ -67,16 +67,56 @@ async function init() {
 
 /** A quiet link in the top bar when a newer release is out. Never interrupts. */
 async function showUpdate() {
-  let r;
-  try { r = await api('/api/update'); } catch { return; }
-  if (!r?.update) return;
+  try { renderUpdate(await api('/api/update')); } catch { /* no server, no news */ }
+}
+
+async function updateOp(body = {}) {
+  const btn = $('#up-check');
+  btn.disabled = true;
+  $('#up-status').textContent = 'Checking…';
+  try { renderUpdate(await api('/api/update', { method: 'POST', body: JSON.stringify(body) })); }
+  catch (e) { $('#up-status').textContent = e.message; }
+  finally { btn.disabled = false; }
+}
+
+function renderUpdate(r) {
+  if (!r) return;
+  const u = r.update;
   const a = $('#updlink');
-  a.href = r.update.url;
-  a.textContent = `⬆ v${r.update.version}`;
-  a.title = `OpenStatsEngine ${r.update.version} is available (this is ${r.current}). ` +
-    (r.packaged ? 'Download the new version and replace this one; your data stays where it is.'
-      : 'Run `git pull` in the OpenStatsEngine folder, or double-click the start script and answer Y, then restart.');
-  a.classList.remove('hidden');
+  if (u) {
+    a.href = u.url;
+    a.textContent = `⬆ v${u.version}`;
+    a.title = `OpenStatsEngine ${u.version}${u.prerelease ? ' (beta)' : ''} is available (this is ${r.current}). ` +
+      (r.packaged ? 'Download the new version and replace this one; your data stays where it is.'
+        : 'Run `git pull` in the OpenStatsEngine folder, or double-click the start script and answer Y, then restart.');
+  }
+  a.classList.toggle('hidden', !u);
+
+  $$('#up-channel .segbtn').forEach((b) => b.classList.toggle('on', b.dataset.ch === r.channel));
+  const box = $('#up-status');
+  box.innerHTML = '';
+  const isBeta = /-/.test(r.current);
+  box.appendChild(el('div', null, `This is OpenStatsEngine ${r.current}${isBeta ? ' (beta)' : ''}.`));
+  if (!r.enabled) {
+    box.appendChild(el('div', 'hint', 'Update checks are turned off (--no-update-check).'));
+  } else if (!r.checked) {
+    box.appendChild(el('div', 'hint', 'Could not reach GitHub to check. No internet here is fine — try again later.'));
+  } else if (u) {
+    const line = el('div', 'upnew');
+    line.appendChild(document.createTextNode(`${u.version}${u.prerelease ? ' (beta)' : ''} is available. `));
+    const link = el('a', null, r.packaged ? 'Download it' : 'See what changed');
+    link.href = u.url; link.target = '_blank'; link.rel = 'noopener';
+    line.appendChild(link);
+    box.appendChild(line);
+  } else {
+    box.appendChild(el('div', 'upok', `Up to date on the ${r.channel} channel.`));
+    if (r.channel === 'stable' && isBeta) {
+      box.appendChild(el('div', 'hint', 'You are running a beta, so you will be offered the first stable release newer than it.'));
+    }
+  }
+  if (!r.packaged) {
+    box.appendChild(el('div', 'hint', 'Running from a git checkout: the start scripts update to the newest code on main, betas included. The channel decides which release the ⬆ link points at.'));
+  }
 }
 
 function fillSelect(sel, pairs, keep = false) {
@@ -98,6 +138,8 @@ function refreshTeamSelects() {
 
 /* ---------------------------- chrome ---------------------------- */
 function bindChrome() {
+  $$('#up-channel .segbtn').forEach((b) => b.onclick = () => updateOp({ channel: b.dataset.ch }));
+  $('#up-check').onclick = () => updateOp();
   $('#dd-check').onclick = checkDataDir;
   $('#dd-save').onclick = () => saveDataDir(false);
   $('#dd-reset').onclick = () => saveDataDir(true);

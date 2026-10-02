@@ -129,6 +129,23 @@ stays quiet. Your teams, rosters and games are never touched by an update.
 Restart the server after updating. A restart mid-game is safe: every entry is
 already on disk, and the clock picks up where it was.
 
+### Stable or beta
+
+**Setup → Updates** chooses which releases you are told about:
+
+- **Stable**: finished releases only. The right choice for game nights.
+- **Beta**: test versions too, ahead of release, to try new things early. Run
+  a beta alongside a game before relying on it in one.
+
+Without a choice, a stable install follows stable and a beta install follows
+beta. A beta install switched to Stable is offered the first finished release
+newer than it, never an older one. The choice is stored per computer, next to
+the data-folder setting. **Check Now** asks GitHub again.
+
+Every release is a tag on `main`; a beta is one GitHub marks as pre-release.
+A git checkout follows `main`, betas included, whatever the channel: the
+channel only changes which release the ⬆ link points at.
+
 ### Releasing
 
 Releases make themselves. Change `"version"` in `package.json` on `main` and
@@ -140,6 +157,10 @@ offered it.
 Release notes come from `docs/releases/v<version>.md` if it exists: its first
 `# ` line becomes the release title and the rest the body. Write it in the same
 commit as the version change.
+
+If a tag of the same name exists without a release (say, from an attempt that
+was redone), the workflow moves it to the commit being released and says so in
+the run's log. A tag that has a release is never touched.
 
 A release published by hand on GitHub gets its apps built too. To rebuild an
 existing release's apps, open **Actions → Build apps → Run workflow** and give

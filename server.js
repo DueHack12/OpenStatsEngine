@@ -299,7 +299,7 @@ server.listen(PORT, HOST, () => {
   if (OPEN) openBrowser(`http://localhost:${port}/`);
   checkForUpdate({ enabled: UPDATE_CHECK }).then((u) => {
     if (!u) return;
-    console.log(`  Update available: OpenStatsEngine ${u.version} (you have ${VERSION}).`);
+    console.log(`  Update available: OpenStatsEngine ${u.version}${u.prerelease ? ' (beta)' : ''} (you have ${VERSION}).`);
     console.log(`  ${packaged ? 'Download it from' : 'Run `git pull`, or see'} ${u.url}\n`);
   });
 

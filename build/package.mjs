@@ -165,7 +165,9 @@ if (targets.includes('mac')) {
   const macos = path.join(app, 'Contents', 'MacOS');
   fs.mkdirSync(macos, { recursive: true });
   fs.mkdirSync(path.join(app, 'Contents', 'Resources'), { recursive: true });
-  const server = path.join(macos, 'openstatsengine');
+  // Not "openstatsengine": macOS file names ignore case, so that would be the
+  // same file as the OpenStatsEngine launcher below, which would overwrite it.
+  const server = path.join(macos, 'ose-server');
   run('lipo', ['-create', ...slices, '-output', server]);
 
   // The server is a console program: it prints its addresses and stops with
@@ -175,7 +177,7 @@ if (targets.includes('mac')) {
     '#!/bin/bash',
     '# Opens the OpenStatsEngine server in a Terminal window.',
     'HERE="$(cd "$(dirname "$0")" && pwd)"',
-    'open -a Terminal "$HERE/openstatsengine"',
+    'open -a Terminal "$HERE/ose-server"',
     ''
   ].join('\n'));
   fs.chmodSync(launcher, 0o755);
@@ -210,6 +212,10 @@ if (targets.includes('mac')) {
 }
 
 fs.rmSync(WORK, { recursive: true, force: true });
+// Every package carries a whole Node runtime, so anything small is broken.
+for (const f of out) {
+  if (fs.statSync(f).size < 20 * 1048576) die(`${path.basename(f)} is too small to contain the server — the build is broken.`);
+}
 console.log('\nBuilt:');
 for (const f of out) console.log(`  ${path.relative(ROOT, f)}  (${(fs.statSync(f).size / 1048576).toFixed(1)} MB)`);
 console.log('');

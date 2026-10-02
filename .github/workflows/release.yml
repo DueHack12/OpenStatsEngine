@@ -23,11 +23,11 @@ jobs:
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ env.TAG }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
 
@@ -45,10 +45,16 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/ose" && cd "$RUNNER_TEMP/ose"
           unzip -q "$GITHUB_WORKSPACE"/dist/*-macos.zip
-          ./OpenStatsEngine.app/Contents/MacOS/openstatsengine \
-            --port 8781 --data "$RUNNER_TEMP/ose-data" --no-backup --no-open --no-update-check &
+          ./OpenStatsEngine.app/Contents/MacOS/ose-server \
+            --port 8781 --data "$RUNNER_TEMP/ose-data" --no-backup --no-open --no-update-check \
+            > "$RUNNER_TEMP/ose.log" 2>&1 &
+          SERVER=$!
           for i in $(seq 30); do curl -sf localhost:8781/api/config >/dev/null && break; sleep 1; done
+          if ! curl -sf localhost:8781/api/config >/dev/null; then
+            echo "::error::The packaged server did not start"; cat "$RUNNER_TEMP/ose.log"; exit 1
+          fi
           cd "$GITHUB_WORKSPACE" && node test/smoke.js
+          kill $SERVER
 
       - name: Attach to the release
         env:

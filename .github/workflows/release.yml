@@ -104,6 +104,14 @@ jobs:
             TITLE="$TAG"
             echo "OpenStatsEngine $TAG." > "$RUNNER_TEMP/notes.md"
           fi
+          # A tag of this name with no release (we only get here when there is
+          # none), left on another commit by an earlier attempt, would be reused
+          # as it stands: the release would carry the wrong source. Move it.
+          OLD=$(git ls-remote origin "refs/tags/$TAG" "refs/tags/$TAG^{}" | tail -1 | cut -f1)
+          if [ -n "$OLD" ] && [ "$OLD" != "${{ github.sha }}" ]; then
+            echo "::warning::Tag $TAG pointed at $OLD with no release; moving it to ${{ github.sha }}."
+            gh api -X DELETE "repos/${{ github.repository }}/git/refs/tags/$TAG"
+          fi
           PRE=""
           case "$TAG" in *-*) PRE="--prerelease" ;; esac
           gh release create "$TAG" dist/OpenStatsEngine-* \

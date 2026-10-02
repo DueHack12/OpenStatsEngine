@@ -485,3 +485,9 @@ table.roster th:nth-child(2),table.roster td:nth-child(2){min-width:200px}
 .ddline{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
 .ddlab{font-size:11px;letter-spacing:1.2px;color:var(--dim);text-transform:uppercase;font-weight:700}
 .ddline code{word-break:break-all}
+
+/* ---------- updates ---------- */
+.upstatus{margin-top:8px;display:flex;flex-direction:column;gap:4px;font-size:13px}
+.upok{color:var(--good);font-weight:600}
+.upnew{color:var(--warn);font-weight:600}
+.upnew a{color:inherit}

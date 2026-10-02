@@ -228,6 +228,22 @@
   </div>
 
   <div class="card">
+    <h2>Updates</h2>
+    <p class="hint"><b>Stable</b> is told about finished releases only. <b>Beta</b> is also told about
+      test versions before they are released, to try new things early; run a beta alongside a game
+      before relying on it in one. You can switch back at any time.</p>
+    <div class="row">
+      <div class="seg" id="up-channel" role="group" aria-label="Update channel">
+        <button class="segbtn" data-ch="stable">Stable</button>
+        <button class="segbtn" data-ch="beta">Beta</button>
+      </div>
+      <span class="spacer"></span>
+      <button id="up-check">Check Now</button>
+    </div>
+    <div id="up-status" class="upstatus"></div>
+  </div>
+
+  <div class="card">
     <h2>Data Folder</h2>
     <p class="hint">Where teams, rosters, games and backups are kept. Point it at a Google Drive,
       OneDrive or Dropbox folder and the season syncs to the cloud by itself.

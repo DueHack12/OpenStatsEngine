@@ -1780,15 +1780,25 @@ function renderDataDir(d) {
 /** One sentence on what a folder holds, so nobody points at the wrong one blind. */
 function describeFolder(i) {
   if (!i.exists) return `${i.dir}\nDoes not exist yet. It will be created, empty, unless you tick Copy.`;
+  if (i.error) return `${i.dir}\nCannot read this folder (${i.error}).${i.hint ? `\n\n${i.hint}` : ''}`;
   if (i.hasData) return `${i.dir}\nHas OpenStatsEngine data: ${i.teams} team(s), ${i.games} game(s). It will be used as it is.`;
+  if (i.nested?.length) return `${i.dir}\nNo OpenStatsEngine data directly in this folder, but there is some inside it:`;
   return `${i.dir}\nExists, with no OpenStatsEngine data. Tick Copy to bring the current data, or start fresh.`;
 }
 
 async function checkDataDir() {
   const out = $('#dd-out');
+  const found = $('#dd-found');
+  found.innerHTML = '';
   try {
     const i = await api('/api/datadir/inspect', { method: 'POST', body: JSON.stringify({ path: $('#dd-path').value }) });
     out.textContent = describeFolder(i);
+    // Usually a source install's own folder, with the data in its "data".
+    for (const n of i.nested || []) {
+      const b = el('button', null, `Use ${n.dir}  (${n.teams} team${n.teams === 1 ? '' : 's'}, ${n.games} game${n.games === 1 ? '' : 's'})`);
+      b.onclick = () => { $('#dd-path').value = n.dir; checkDataDir(); };
+      found.appendChild(b);
+    }
     return i;
   } catch (e) { out.textContent = e.message; return null; }
 }
@@ -1801,6 +1811,11 @@ async function saveDataDir(reset = false) {
     const i = await checkDataDir();
     if (!i) return;
     if (copy && i.hasData) { out.textContent += '\n\nUntick Copy: this folder already has data, and it is never copied over.'; return; }
+    if (i.error) return;
+    if (!copy && !i.hasData && i.nested?.length) {
+      $('#dd-out').textContent += '\n\nPick one of the folders below, or tick Copy to start this one with the data in use now.';
+      return;
+    }
     if (!copy && !i.hasData && !await ask({
       title: 'Start this folder empty?',
       body: `${i.dir} has no OpenStatsEngine data. After the restart you would start with no teams or games. Tick Copy to bring the current data along instead.`,

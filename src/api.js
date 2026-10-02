@@ -13,7 +13,7 @@ import { localStamp } from './util.js';
 import { FEED_FIELDS } from './integrations/scorebot.js';
 import { VERSION, packaged } from './runtime.js';
 import { checkUpdates, getChannel, setChannel, defaultChannel, CHANNELS } from './update.js';
-import { resolveDataDir, inspectDataDir, chooseDataDir, readSettings, settingsPath, normalizePath } from './datadir.js';
+import { resolveDataDir, inspectDataDir, chooseDataDir, readSettings, settingsPath, normalizePath, permissionHint } from './datadir.js';
 
 const raw = (body, type, filename, status = 200) => ({ __raw: true, body, type, filename, status });
 const bad = (msg, status = 400) => { const e = new Error(msg); e.status = status; throw e; };
@@ -106,7 +106,8 @@ export function registerRoutes(route, ctx) {
   route('POST', '/api/datadir/inspect', ({ body }) => {
     const p = normalizePath(body?.path);
     if (!p) bad('Enter a folder path');
-    return inspectDataDir(p);
+    const i = inspectDataDir(p);
+    return { ...i, hint: permissionHint(i.error) };
   });
 
   route('POST', '/api/datadir', ({ body }) => {

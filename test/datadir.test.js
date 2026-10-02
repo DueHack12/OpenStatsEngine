@@ -1,7 +1,7 @@
 import fs from 'node:fs'; import path from 'node:path'; import os from 'node:os';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ose-dd-'));
 process.env.OSE_SETTINGS = path.join(tmp, 'cfg', 'settings.json');
-const { resolveDataDir, inspectDataDir, chooseDataDir, readSettings, normalizePath } = await import('../src/datadir.js');
+const { resolveDataDir, inspectDataDir, chooseDataDir, readSettings, normalizePath, permissionHint } = await import('../src/datadir.js');
 const { defaultDataDir } = await import('../src/runtime.js');
 const { Store } = await import('../src/store.js');
 let pass=0, fail=0;
@@ -29,6 +29,22 @@ let i = inspectDataDir(current);
 ok('counts teams and games', i.exists && i.hasData && i.teams === 2 && i.games === 1, JSON.stringify(i));
 i = inspectDataDir(path.join(tmp, 'nope'));
 ok('missing folder', !i.exists && !i.hasData);
+
+// A source install kept in Drive: the folder people point at is the install,
+// and the data is in its "data" folder.
+const install = path.join(tmp, 'Shared drives', 'Software Files', 'OpenStatsEngine');
+fs.mkdirSync(path.join(install, 'public'), { recursive: true });
+fs.writeFileSync(path.join(install, 'server.js'), '');
+const installData = new Store(path.join(install, 'data'));
+installData.saveTeam({ name: 'Fairfield Prep', abbrev: 'FP' });
+installData.saveTeam({ name: 'Xavier', abbrev: 'XAV' });
+installData.createGame({ sport: 'football', homeTeamId: 'fairfield-prep', awayTeamId: 'xavier', date: '2026-10-03' });
+i = inspectDataDir(install);
+ok('install folder itself has no data', !i.hasData && !i.error);
+ok('…but its data folder is found', i.nested.length === 1 && i.nested[0].dir === path.join(install, 'data')
+  && i.nested[0].teams === 2 && i.nested[0].games === 1, JSON.stringify(i.nested));
+ok('no nested search when the folder has data', inspectDataDir(current).nested.length === 0);
+ok('permission errors explained', /Terminal|not letting/.test(permissionHint('EPERM')) && permissionHint('ENOENT') === '');
 
 console.log('\n== choose ==');
 throws('relative path refused', () => chooseDataDir('relative/folder', { current }), /full path/);

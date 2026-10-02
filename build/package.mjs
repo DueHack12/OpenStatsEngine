@@ -180,6 +180,8 @@ if (targets.includes('mac')) {
   ].join('\n'));
   fs.chmodSync(launcher, 0o755);
 
+  // macOS wants bundle versions purely numeric, so "2.0.0-beta1" goes in as
+  // 2.0.0 there and in full in the info string.
   fs.writeFileSync(path.join(app, 'Contents', 'Info.plist'), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -187,8 +189,9 @@ if (targets.includes('mac')) {
   <key>CFBundleName</key><string>${NAME}</string>
   <key>CFBundleDisplayName</key><string>${NAME}</string>
   <key>CFBundleIdentifier</key><string>io.github.duehack12.openstatsengine</string>
-  <key>CFBundleVersion</key><string>${VERSION}</string>
-  <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+  <key>CFBundleVersion</key><string>${VERSION.split('-')[0]}</string>
+  <key>CFBundleShortVersionString</key><string>${VERSION.split('-')[0]}</string>
+  <key>CFBundleGetInfoString</key><string>${NAME} ${VERSION}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>${NAME}</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>

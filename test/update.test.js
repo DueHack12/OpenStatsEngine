@@ -17,6 +17,14 @@ ok('minor beats patch', isNewer('1.5.0', '1.4.99'));
 ok('leading v ignored', !isNewer('v1.4.2', '1.4.2'));
 ok('older is not newer', !isNewer('1.4.1', '1.4.2'));
 ok('missing part counts as 0', !isNewer('1.5', '1.5.0'));
+ok('release beats its beta', isNewer('2.0.0', '2.0.0-beta1'));
+ok('beta is not newer than its release', !isNewer('2.0.0-beta1', '2.0.0'));
+ok('beta of the next major beats the current release', isNewer('v2.0.0-beta1', '1.4.2'));
+ok('next beta is newer', isNewer('2.0.0-beta2', '2.0.0-beta1'));
+ok('beta numbers compared numerically', isNewer('2.0.0-beta10', '2.0.0-beta9'));
+ok('dotted pre-release works too', isNewer('2.0.0-beta.2', '2.0.0-beta.1'));
+ok('rc beats beta', isNewer('2.0.0-rc1', '2.0.0-beta3'));
+ok('same beta is not newer', !isNewer('2.0.0-beta1', 'v2.0.0-beta1'));
 ok('disabled check makes no request', (await checkForUpdate({ enabled: false })) === null);
 
 console.log(`\n${pass} passed, ${fail} failed`);

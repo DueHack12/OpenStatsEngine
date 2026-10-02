@@ -23,7 +23,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const DIST = path.join(ROOT, 'dist');
@@ -34,6 +34,9 @@ const NAME = 'OpenStatsEngine';
 const SENTINEL = 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2';
 const ESBUILD = 'esbuild@0.28.2';
 const POSTJECT = 'postject@1.0.0-alpha.6';
+const RESEDIT = 'resedit@3.1.0';
+const ICON = path.join(ROOT, 'build', 'icon');
+const NUMERIC = VERSION.split('-')[0].split('.').map((n) => parseInt(n, 10) || 0);
 
 const here = { win32: 'win', darwin: 'mac', linux: 'linux' }[process.platform];
 let targets = process.argv.slice(2);
@@ -127,6 +130,57 @@ function inject(bin, macho = false) {
     ...(macho ? ['--macho-segment-name', 'NODE_SEA'] : [])]);
 }
 
+/**
+ * Give the Windows binary our icon and name. Without this it is a copy of
+ * node.exe: Node's icon in Explorer, and "Node.js" in its Properties and in
+ * Task Manager. Done after injection: postject cannot parse the binary once
+ * resedit has rewritten it, while resedit carries the injected blob through.
+ * Checked afterwards, byte for byte, because a wrong guess there is a broken app.
+ */
+async function brandWindowsExe(exe) {
+  const tools = path.join(WORK, 'tools');
+  fs.mkdirSync(tools, { recursive: true });
+  run('npm', ['install', '--silent', '--no-save', '--no-package-lock', '--prefix', tools, RESEDIT]);
+  // resedit is ESM-only; a module inside the install resolves it for us.
+  const shim = path.join(tools, 'shim.mjs');
+  fs.writeFileSync(shim, "export * as ResEdit from 'resedit';\nexport * as PE from 'pe-library';\n");
+  const { ResEdit, PE } = await import(pathToFileURL(shim).href);
+
+  const bin = PE.NtExecutable.from(fs.readFileSync(exe), { ignoreCert: true });
+  const res = PE.NtExecutableResource.from(bin);
+
+  const icons = ResEdit.Data.IconFile.from(fs.readFileSync(path.join(ICON, 'icon.ico'))).icons.map((i) => i.data);
+  const groups = ResEdit.Resource.IconGroupEntry.fromEntries(res.entries);
+  const g = groups[0] || { id: 1, lang: 1033 };
+  ResEdit.Resource.IconGroupEntry.replaceIconsForResource(res.entries, g.id, g.lang, icons);
+
+  const [vi] = ResEdit.Resource.VersionInfo.fromEntries(res.entries);
+  if (vi) {
+    const strings = {
+      ProductName: NAME, FileDescription: NAME, CompanyName: NAME,
+      InternalName: NAME, OriginalFilename: `${NAME}.exe`,
+      FileVersion: VERSION, ProductVersion: VERSION,
+      LegalCopyright: 'MIT License'
+    };
+    // The numeric versions first: setting them also rewrites the version
+    // strings, which should read 2.0.0-beta2 rather than 2.0.0.0.
+    vi.setFileVersion(...NUMERIC, 0);
+    vi.setProductVersion(...NUMERIC, 0);
+    for (const lang of vi.getAllLanguagesForStringValues()) vi.setStringValues(lang, strings);
+    vi.outputToResourceEntries(res.entries);
+  }
+  res.outputResource(bin);
+  const outBuf = Buffer.from(bin.generate());
+
+  // The app is the blob: make sure it survived, and the fuse is still set.
+  const after = PE.NtExecutableResource.from(PE.NtExecutable.from(outBuf, { ignoreCert: true }));
+  const sea = after.entries.find((e) => e.type === 10 && e.id === 'NODE_SEA_BLOB');
+  if (!sea || !Buffer.from(sea.bin).equals(fs.readFileSync(blob))) die('The Windows build lost its app while setting the icon.');
+  if (!outBuf.includes(Buffer.from(`${SENTINEL}:1`))) die('The Windows build lost its single-executable fuse while setting the icon.');
+  fs.writeFileSync(exe, outBuf);
+  console.log(`  icon and version info set (${icons.length} icon sizes)`);
+}
+
 const out = [];
 
 /* ---------- Windows ---------- */
@@ -135,6 +189,7 @@ if (targets.includes('win')) {
   const exe = path.join(DIST, `${NAME}-${VERSION}-windows-x64.exe`);
   await nodeBinary('win', 'x64', exe);
   inject(exe);
+  await brandWindowsExe(exe);
   out.push(exe);
 }
 
@@ -164,7 +219,17 @@ if (targets.includes('mac')) {
   const app = path.join(WORK, `${NAME}.app`);
   const macos = path.join(app, 'Contents', 'MacOS');
   fs.mkdirSync(macos, { recursive: true });
-  fs.mkdirSync(path.join(app, 'Contents', 'Resources'), { recursive: true });
+  const resources = path.join(app, 'Contents', 'Resources');
+  fs.mkdirSync(resources, { recursive: true });
+
+  // The app icon: every size macOS asks for, scaled from the 1024px master.
+  const iconset = path.join(WORK, 'icon.iconset');
+  fs.mkdirSync(iconset, { recursive: true });
+  for (const n of [16, 32, 128, 256, 512]) {
+    run('sips', ['-z', String(n), String(n), path.join(ICON, 'icon-1024.png'), '--out', path.join(iconset, `icon_${n}x${n}.png`)], { stdio: 'ignore' });
+    run('sips', ['-z', String(n * 2), String(n * 2), path.join(ICON, 'icon-1024.png'), '--out', path.join(iconset, `icon_${n}x${n}@2x.png`)], { stdio: 'ignore' });
+  }
+  run('iconutil', ['-c', 'icns', iconset, '-o', path.join(resources, 'icon.icns')]);
   // Not "openstatsengine": macOS file names ignore case, so that would be the
   // same file as the OpenStatsEngine launcher below, which would overwrite it.
   const server = path.join(macos, 'ose-server');
@@ -196,6 +261,7 @@ if (targets.includes('mac')) {
   <key>CFBundleGetInfoString</key><string>${NAME} ${VERSION}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleExecutable</key><string>${NAME}</string>
+  <key>CFBundleIconFile</key><string>icon</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
 </dict>

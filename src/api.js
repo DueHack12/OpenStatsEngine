@@ -13,6 +13,7 @@ import { localStamp } from './util.js';
 import { FEED_FIELDS } from './integrations/scorebot.js';
 import { VERSION, packaged } from './runtime.js';
 import { checkForUpdate } from './update.js';
+import { resolveDataDir, inspectDataDir, chooseDataDir, readSettings, settingsPath, normalizePath } from './datadir.js';
 
 const raw = (body, type, filename, status = 200) => ({ __raw: true, body, type, filename, status });
 const bad = (msg, status = 400) => { const e = new Error(msg); e.status = status; throw e; };
@@ -81,6 +82,39 @@ export function registerRoutes(route, ctx) {
     scorebotFields: FEED_FIELDS,
     version: VERSION
   }));
+
+  /* ---------------- data folder ---------------- */
+  // Where data lives now, and where it will live after a restart.
+  const dataDirInfo = () => {
+    const next = resolveDataDir({}); // what a plain start would pick, ignoring --data / OSE_DATA
+    const overridden = ctx.DATA_SOURCE === 'flag' || ctx.DATA_SOURCE === 'env';
+    return {
+      current: ctx.DATA,
+      source: ctx.DATA_SOURCE || 'flag',
+      chosen: readSettings().dataDir || null,
+      next: next.dir,
+      // A change made here only takes effect on the next start…
+      pending: !overridden && next.dir !== ctx.DATA,
+      // …and never while --data or OSE_DATA is given.
+      overridden,
+      settingsFile: settingsPath()
+    };
+  };
+
+  route('GET', '/api/datadir', () => dataDirInfo());
+
+  route('POST', '/api/datadir/inspect', ({ body }) => {
+    const p = normalizePath(body?.path);
+    if (!p) bad('Enter a folder path');
+    return inspectDataDir(p);
+  });
+
+  route('POST', '/api/datadir', ({ body }) => {
+    let r;
+    try { r = chooseDataDir(body?.path, { current: ctx.DATA, copy: !!body?.copy }); }
+    catch (e) { bad(e.message); }
+    return { ...r, ...dataDirInfo() };
+  });
 
   // A newer release, if there is one: { current, packaged, update: {version, name, url} | null }.
   route('GET', '/api/update', async () => ({

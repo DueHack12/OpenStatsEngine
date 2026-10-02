@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1E293B"/>
+      <stop offset="100%" stop-color="#0F172A"/>
+    </linearGradient>
+
+    <!-- Clean Tech Accent Gradient -->
+    <linearGradient id="primaryGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#0066FF"/>
+      <stop offset="100%" stop-color="#00E5FF"/>
+    </linearGradient>
+  </defs>
+
+  <!-- App Icon Base (Standard macOS/iOS Squircle Shape) -->
+  <rect width="512" height="512" rx="112" fill="url(#bgGrad)"/>
+
+  <!-- Main Symbol Group -->
+  <g transform="translate(106, 106)">
+    <!-- Outer "O" / Frame Ring -->
+    <path d="M 150 20 
+             A 130 130 0 1 1 20 150
+             A 130 130 0 0 1 150 20 Z" 
+          fill="none" 
+          stroke="url(#primaryGrad)" 
+          stroke-width="24" 
+          stroke-linecap="round"/>
+
+    <!-- Integrated Bar Chart (Statistics) -->
+    <rect x="75"  y="150" width="24" height="60"  rx="6" fill="#00E5FF"/>
+    <rect x="115" y="110" width="24" height="100" rx="6" fill="#00E5FF"/>
+    <rect x="155" y="70"  width="24" height="140" rx="6" fill="#0066FF"/>
+    <rect x="195" y="130" width="24" height="80"  rx="6" fill="#0066FF"/>
+
+    <!-- Flat Trend Line -->
+    <path d="M 60 160 L 127 100 L 167 125 L 235 55" 
+          fill="none" 
+          stroke="#FFFFFF" 
+          stroke-width="12" 
+          stroke-linecap="round" 
+          stroke-linejoin="round"/>
+
+    <!-- Peak Endpoint Indicator -->
+    <circle cx="235" cy="55" r="10" fill="#00E5FF"/>
+  </g>
+</svg>

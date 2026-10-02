@@ -1,6 +1,6 @@
 {
   "name": "openstatsengine",
-  "version": "1.4.2",
+  "version": "2.0.0-beta1",
   "description": "Live multi-sport stats entry server with vMix XML output for high school broadcast",
   "type": "module",
   "main": "server.js",

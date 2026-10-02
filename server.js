@@ -5,7 +5,8 @@ import os from 'node:os';
 import { Store } from './src/store.js';
 import { registerRoutes } from './src/api.js';
 import { ScorebotClient } from './src/integrations/scorebot.js';
-import { sea, packaged, VERSION, ROOT, defaultDataDir, openBrowser } from './src/runtime.js';
+import { sea, packaged, VERSION, ROOT, openBrowser } from './src/runtime.js';
+import { resolveDataDir } from './src/datadir.js';
 import { checkForUpdate } from './src/update.js';
 
 /* ---------------- args ---------------- */
@@ -16,7 +17,7 @@ const arg = (name, def) => {
 };
 const PORT = parseInt(arg('port', process.env.OSE_PORT || '8080'), 10);
 const HOST = arg('host', process.env.OSE_HOST || '0.0.0.0');
-const DATA = path.resolve(arg('data', process.env.OSE_DATA || defaultDataDir()));
+const { dir: DATA, source: DATA_SOURCE } = resolveDataDir({ flag: arg('data'), env: process.env.OSE_DATA });
 const PUBLIC = path.join(ROOT, 'public');
 // A packaged app is double-clicked, so it opens the entry page itself.
 const OPEN = argv.includes('--open') || (packaged && !argv.includes('--no-open'));
@@ -33,7 +34,28 @@ function fatal(msg) {
   console.error('\n  Press Enter to close.');
   process.stdin.once('data', () => process.exit(1)).resume();
 }
-process.on('uncaughtException', (e) => fatal(`\n  OpenStatsEngine stopped: ${e.stack || e.message}`));
+/** An error whose message is the whole explanation: shown without a stack trace. */
+class Stop extends Error {}
+process.on('uncaughtException', (e) => fatal(e instanceof Stop ? e.message : `\n  OpenStatsEngine stopped: ${e.stack || e.message}`));
+
+/**
+ * A folder picked in Setup is usually a synced one (Google Drive, OneDrive),
+ * which may not be mounted yet when the machine has just started. Give it a
+ * moment, then stop rather than start on an empty folder: entries saved there
+ * would be missing from the real one and would have to be merged by hand.
+ */
+function waitForDataDir() {
+  if (DATA_SOURCE !== 'setting' || fs.existsSync(DATA)) return;
+  console.log(`\n  Waiting for the data folder ${DATA}`);
+  console.log('  (Is Google Drive / OneDrive / Dropbox running?)');
+  const nap = new Int32Array(new SharedArrayBuffer(4));
+  for (let i = 0; i < 30 && !fs.existsSync(DATA); i++) Atomics.wait(nap, 0, 0, 1000);
+  if (fs.existsSync(DATA)) return;
+  throw new Stop(`\n  The data folder is not there:\n    ${DATA}\n\n` +
+    '  It was chosen in Setup -> Data Folder. Start the app that syncs it and try again,\n' +
+    `  or start with --data <folder> to use another one for now.\n`);
+}
+waitForDataDir();
 
 const store = new Store(DATA);
 
@@ -87,7 +109,7 @@ const scorebot = new ScorebotClient({
 
 // `port` is mutable: a busy port falls back to the next free one, and the
 // monitor page shows whichever we actually ended up on.
-const ctx = { store, broadcast, scorebot, DATA, PUBLIC, port: PORT, updateCheck: UPDATE_CHECK };
+const ctx = { store, broadcast, scorebot, DATA, DATA_SOURCE, PUBLIC, port: PORT, updateCheck: UPDATE_CHECK };
 registerRoutes(route, ctx);
 
 /* ---------------- static ---------------- */
@@ -259,6 +281,7 @@ server.listen(PORT, HOST, () => {
   console.log(line);
   const kb = Math.round(store.dataSize() / 1024);
   console.log(`  Data folder : ${DATA}${kb ? `  (${kb} KB, backups in _backups/)` : ''}`);
+  if (DATA_SOURCE === 'setting') console.log('                (chosen in Setup -> Data Folder)');
   const port = server.address().port;
   console.log(`  Local       : http://localhost:${port}`);
   for (const ip of ips) console.log(`  Network     : http://${ip}:${port}`);

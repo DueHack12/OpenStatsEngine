@@ -52,6 +52,7 @@ async function init() {
   $('#ng-operator').value = S.cfg.operator || '';
   $('#ex-season').value = S.cfg.season || '';
   loadScorebotForm();
+  loadDataDir();
   refreshTeamSelects();
   renderGameList();
 
@@ -97,6 +98,9 @@ function refreshTeamSelects() {
 
 /* ---------------------------- chrome ---------------------------- */
 function bindChrome() {
+  $('#dd-check').onclick = checkDataDir;
+  $('#dd-save').onclick = () => saveDataDir(false);
+  $('#dd-reset').onclick = () => saveDataDir(true);
   $$('.tab').forEach((b) => b.onclick = () => go(b.dataset.tab));
   $$('[data-goto]').forEach((b) => b.onclick = () => go(b.dataset.goto));
 
@@ -1699,6 +1703,80 @@ async function loadHistory(opts = {}) {
 }
 
 /* ---------------------------- scorebot ---------------------------- */
+/* ---------------------------- data folder ---------------------------- */
+const DD_SOURCE = {
+  flag: 'set by --data when the server was started',
+  env: 'set by the OSE_DATA environment variable',
+  setting: 'chosen here',
+  default: 'the default'
+};
+
+async function loadDataDir() {
+  let d;
+  try { d = await api('/api/datadir'); } catch { return; }
+  renderDataDir(d);
+  if (!$('#dd-path').value) $('#dd-path').value = d.chosen || '';
+}
+
+function renderDataDir(d) {
+  const box = $('#dd-status');
+  box.innerHTML = '';
+  const line = el('div', 'ddline');
+  line.appendChild(el('span', 'ddlab', 'In use'));
+  line.appendChild(el('code', null, d.current));
+  box.appendChild(line);
+  box.appendChild(el('div', 'hint', `This is ${DD_SOURCE[d.source] || d.source}.`));
+  S.dataDir = d.current;
+  renderVmixPath();
+  if (d.overridden && d.chosen) {
+    box.appendChild(el('div', 'warnbox', `The folder chosen here (${d.chosen}) is ignored while the server is started with ${d.source === 'env' ? 'OSE_DATA' : '--data'}.`));
+  } else if (d.pending) {
+    box.appendChild(el('div', 'warnbox', `From the next start: ${d.next}. Close OpenStatsEngine and open it again to switch. Anything entered before then is saved in the folder in use now.`));
+  }
+}
+
+/** One sentence on what a folder holds, so nobody points at the wrong one blind. */
+function describeFolder(i) {
+  if (!i.exists) return `${i.dir}\nDoes not exist yet. It will be created, empty, unless you tick Copy.`;
+  if (i.hasData) return `${i.dir}\nHas OpenStatsEngine data: ${i.teams} team(s), ${i.games} game(s). It will be used as it is.`;
+  return `${i.dir}\nExists, with no OpenStatsEngine data. Tick Copy to bring the current data, or start fresh.`;
+}
+
+async function checkDataDir() {
+  const out = $('#dd-out');
+  try {
+    const i = await api('/api/datadir/inspect', { method: 'POST', body: JSON.stringify({ path: $('#dd-path').value }) });
+    out.textContent = describeFolder(i);
+    return i;
+  } catch (e) { out.textContent = e.message; return null; }
+}
+
+async function saveDataDir(reset = false) {
+  const out = $('#dd-out');
+  const path = reset ? '' : $('#dd-path').value.trim();
+  const copy = !reset && $('#dd-copy').checked;
+  if (!reset) {
+    const i = await checkDataDir();
+    if (!i) return;
+    if (copy && i.hasData) { out.textContent += '\n\nUntick Copy: this folder already has data, and it is never copied over.'; return; }
+    if (!copy && !i.hasData && !await ask({
+      title: 'Start this folder empty?',
+      body: `${i.dir} has no OpenStatsEngine data. After the restart you would start with no teams or games. Tick Copy to bring the current data along instead.`,
+      yes: 'Use it empty', no: 'Cancel'
+    })) return;
+  }
+  try {
+    const r = await api('/api/datadir', { method: 'POST', body: JSON.stringify({ path, copy }) });
+    renderDataDir(r);
+    if (reset) $('#dd-path').value = '';
+    $('#dd-copy').checked = false;
+    out.textContent = (reset ? `Back to the default: ${r.dir}` : `Saved: ${r.dir}`) +
+      (r.copied ? '\nThe current data was copied there.' : '') +
+      (r.pending ? '\nClose OpenStatsEngine and open it again to switch.' : '');
+    toast('Data folder saved', 'ok');
+  } catch (e) { out.textContent = e.message; }
+}
+
 function loadScorebotForm() {
   const sb = S.cfg.scorebot || {};
   $('#sb-enabled').checked = !!sb.enabled;
@@ -1966,10 +2044,16 @@ function renderVmix() {
     try { await navigator.clipboard.writeText(b2.dataset.copy); toast('Copied', 'ok'); }
     catch { toast('Copy failed — select the URL manually', 'err'); }
   });
+  renderVmixPath();
+}
+
+function renderVmixPath() {
+  const sep = S.dataDir?.includes('\\') ? '\\' : '/';
+  const vmix = S.dataDir ? `${S.dataDir}${sep}vmix${sep}` : 'vmix/';
   $('#vmix-path').textContent =
-    'XML files are also written to the data/vmix folder next to the server.\n' +
-    'data/vmix/_live/  always contains the active game.\n' +
-    'data/vmix/<game-id>/  keeps a per-game copy.';
+    `XML files are also written to ${vmix}\n` +
+    `${vmix}_live${sep}  always contains the active game.\n` +
+    `${vmix}<game-id>${sep}  keeps a per-game copy.`;
 }
 
 /**

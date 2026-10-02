@@ -7,6 +7,7 @@ For installation and a two-minute overview, see the [README](../README.md).
 
 - [Quick start](#quick-start)
 - [Updating](#updating)
+- [Data folder — Google Drive, OneDrive, Dropbox](#data-folder--google-drive-onedrive-dropbox)
 - [Game-day workflow](#game-day-workflow)
 - [The announcer view](#the-announcer-view)
 - [vMix setup](#vmix-setup)
@@ -53,7 +54,9 @@ game; closing it stops the server. It also opens the entry page in your browser.
 folder. The exception is a folder called `data` sitting next to the `.exe` (or
 Linux binary): if there is one, the app uses it. That is how you run it from a
 USB stick, and how you move a source install over: copy its `data` folder next
-to the `.exe`, or into `Documents` renamed to `OpenStatsEngine`.
+to the `.exe`, or into `Documents` renamed to `OpenStatsEngine`. To keep it
+anywhere else, such as a Google Drive folder, see
+[Data folder](#data-folder--google-drive-onedrive-dropbox).
 
 **From source** instead, you need **Node.js 18 or newer** (get the LTS build
 from <https://nodejs.org>). There are no other dependencies, so there is nothing
@@ -90,14 +93,16 @@ Options:
 node server.js --port 8080 --data "D:\Broadcast\stats-2026"
 ```
 
-`--data` is where everything is stored. Point it at a Dropbox/OneDrive folder and
-your season backs itself up. The apps take the same options: on Windows, make a
-shortcut to the `.exe` and add them to the end of its **Target**.
+`--data` is where everything is stored for that run. To change it for good,
+use **Setup → Data Folder** instead (see
+[Data folder](#data-folder--google-drive-onedrive-dropbox)). The apps take the
+same options: on Windows, make a shortcut to the `.exe` and add them to the end
+of its **Target**.
 
 | Option | |
 |---|---|
 | `--port 9000` | Listen on another port (default 8080) |
-| `--data <folder>` | Keep data somewhere else |
+| `--data <folder>` | Use this data folder for this run, whatever Setup says (also `OSE_DATA`) |
 | `--no-backup` | Skip the startup snapshot |
 | `--open` / `--no-open` | Open the entry page in a browser on start (the apps do by default) |
 | `--no-update-check` | Never ask GitHub about new releases (also `OSE_NO_UPDATE_CHECK=1`) |
@@ -124,18 +129,73 @@ stays quiet. Your teams, rosters and games are never touched by an update.
 Restart the server after updating. A restart mid-game is safe: every entry is
 already on disk, and the clock picks up where it was.
 
-### Building the apps
+### Releasing
 
-Each published GitHub release builds the apps and attaches them by itself (the
-**Build apps** workflow). To rebuild an existing release, open the **Actions**
-tab → **Build apps** → **Run workflow**, and give it the tag. To build locally:
+Releases make themselves. Change `"version"` in `package.json` on `main` and
+push, and the **Build apps** workflow creates the tag and the GitHub release,
+builds the apps, smoke-tests the packaged server, and attaches them. A version
+with a dash (`2.0.0-beta2`) is marked pre-release, so stable installs are not
+offered it.
+
+Release notes come from `docs/releases/v<version>.md` if it exists: its first
+`# ` line becomes the release title and the rest the body. Write it in the same
+commit as the version change.
+
+A release published by hand on GitHub gets its apps built too. To rebuild an
+existing release's apps, open **Actions → Build apps → Run workflow** and give
+it the tag. Don't use **Re-run** on an old run: it replays the old commit.
+
+To build locally:
 
 ```bash
 node build/package.mjs            # this platform
 node build/package.mjs win linux  # Windows and Linux can be built anywhere
 ```
 
-The macOS app has to be built on a Mac. Output goes to `dist/`.
+The macOS app has to be built on a Mac. Output goes to `dist/`. The app icon
+lives in `build/icon/` (`icon-1024.png` for macOS, `icon.ico` for Windows) and
+`public/icon.svg` for the browser.
+
+---
+
+## Data folder — Google Drive, OneDrive, Dropbox
+
+Teams, rosters, games and backups all live in one folder. Put it in a folder
+that Google Drive, OneDrive or Dropbox syncs, and the season is backed up to
+the cloud as you go.
+
+**Setup → Data Folder** shows the folder in use and why. To change it:
+
+1. Paste the folder's full path, e.g. `G:\My Drive\OpenStatsEngine` on Windows
+   or `/Users/you/Library/CloudStorage/GoogleDrive-you@example.com/My Drive/OpenStatsEngine`
+   on a Mac. (In Finder, right-click the folder, hold **Option**, and choose
+   **Copy … as Pathname**.)
+2. **Check Folder** says what is already there.
+   - **Already has OpenStatsEngine data** (from an earlier version, or another
+     computer): it is used as it is. Nothing is copied over it, ever.
+   - **Empty or new:** tick **Copy the data in use now** to bring your teams and
+     games along, or leave it unticked to start fresh.
+3. **Use This Folder**, then close OpenStatsEngine and open it again. The switch
+   happens at the next start. Anything entered before restarting stays in the
+   old folder, so switch between games, not during one.
+
+**Use the Default** goes back to the standard location. The choice is stored per
+computer, outside any data folder (in `%APPDATA%\OpenStatsEngine` on Windows,
+`~/Library/Application Support/OpenStatsEngine` on a Mac). `--data` and
+`OSE_DATA` still win when given; the card says so when they do.
+
+**Synced folders, the fine print:**
+
+- **One computer at a time.** Two servers writing to the same synced folder
+  make the sync app create conflict copies of the game logs. Moving between
+  computers is fine: close it on one, let it sync, open it on the other.
+- **Make the folder available offline** (Google Drive: right-click → Offline
+  access → Available offline) so the venue's internet never matters.
+- **If the folder is missing at startup** (Drive not running yet, a USB drive
+  not plugged in), OpenStatsEngine waits up to 30 seconds for it, then stops and
+  says so. It does not quietly start on an empty folder, because games logged
+  there would be missing from the real one. Start the sync app and open
+  OpenStatsEngine again, or start with `--data` to use another folder for now.
 
 ---
 

@@ -1,19 +1,33 @@
-# Builds the Windows .exe, the macOS .app and a Linux binary, and attaches them
-# to the GitHub release. Runs when a release is published; can also be run by
-# hand from the Actions tab for an existing tag (e.g. to rebuild v1.4.2).
+# Releases, start to finish.
+#
+# Bump "version" in package.json on main and push: this creates the tag and the
+# GitHub release, builds the Windows .exe, the macOS .app and a Linux binary,
+# and attaches them. A version with a dash (2.0.0-beta2) is marked pre-release.
+# The release notes come from docs/releases/v<version>.md if it exists: its
+# first "# " line is the title, the rest is the body.
+#
+# Also runs for a release published by hand on GitHub, and from the Actions tab
+# (Run workflow, with a tag) to rebuild an existing release's apps.
 name: Build apps
 
 on:
+  push:
+    branches: [main]
+    paths: [package.json]
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag to build and attach to (e.g. v1.4.2)
+        description: Release tag to build and attach to (e.g. v2.0.0-beta2)
         required: true
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -21,30 +35,51 @@ jobs:
     # Windows and Linux builds are made on the same machine.
     runs-on: macos-latest
     env:
-      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ env.TAG }}
+          ref: ${{ github.event_name == 'push' && github.sha || github.event.release.tag_name || inputs.tag }}
+
+      - name: Work out the release
+        id: rel
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            TAG="v$(node -p "require('./package.json').version")"
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "$TAG is already released; nothing to do."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            fi
+            echo "create=true" >> "$GITHUB_OUTPUT"
+          else
+            TAG="${{ github.event.release.tag_name || inputs.tag }}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Release: $TAG"
 
       - uses: actions/setup-node@v5
+        if: steps.rel.outputs.skip != 'true'
         with:
           node-version: 22
 
       - name: Test
+        if: steps.rel.outputs.skip != 'true'
         run: |
           node test/engine.test.js && node test/v2.test.js && node test/v3.test.js \
             && node test/v4.test.js && node test/v5.test.js && node test/v6.test.js \
             && node test/v7.test.js && node test/mqtt.test.js && node test/announcer.test.js \
-            && node test/backup.test.js && node test/update.test.js && node test/real-data.test.js
+            && node test/backup.test.js && node test/update.test.js && node test/datadir.test.js && node test/real-data.test.js
 
       - name: Package
+        if: steps.rel.outputs.skip != 'true'
         run: node build/package.mjs all
 
       - name: Smoke-test the packaged server
+        if: steps.rel.outputs.skip != 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/ose" && cd "$RUNNER_TEMP/ose"
           unzip -q "$GITHUB_WORKSPACE"/dist/*-macos.zip
+          test -f OpenStatsEngine.app/Contents/Resources/icon.icns || { echo "::error::The app has no icon"; exit 1; }
           ./OpenStatsEngine.app/Contents/MacOS/ose-server \
             --port 8781 --data "$RUNNER_TEMP/ose-data" --no-backup --no-open --no-update-check \
             > "$RUNNER_TEMP/ose.log" 2>&1 &
@@ -56,7 +91,26 @@ jobs:
           cd "$GITHUB_WORKSPACE" && node test/smoke.js
           kill $SERVER
 
-      - name: Attach to the release
+      - name: Create the release
+        if: steps.rel.outputs.skip != 'true' && steps.rel.outputs.create == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.rel.outputs.tag }}
+        run: |
+          NOTES="docs/releases/$TAG.md"
+          if [ -f "$NOTES" ]; then
+            TITLE=$(grep -m1 '^# ' "$NOTES" | sed 's/^# //')
+            awk 'found{print} /^# /&&!found{found=1}' "$NOTES" > "$RUNNER_TEMP/notes.md"
+          else
+            TITLE="$TAG"
+            echo "OpenStatsEngine $TAG." > "$RUNNER_TEMP/notes.md"
+          fi
+          PRE=""
+          case "$TAG" in *-*) PRE="--prerelease" ;; esac
+          gh release create "$TAG" dist/OpenStatsEngine-* \
+            --target "${{ github.sha }}" --title "${TITLE:-$TAG}" --notes-file "$RUNNER_TEMP/notes.md" $PRE
+
+      - name: Attach to the release
+        if: steps.rel.outputs.skip != 'true' && steps.rel.outputs.create != 'true'
+        env:
+          TAG: ${{ steps.rel.outputs.tag }}
         run: gh release upload "$TAG" dist/OpenStatsEngine-* --clobber

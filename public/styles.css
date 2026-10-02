@@ -479,3 +479,9 @@ table.roster tr.rbad td{background:rgba(239,68,68,.05)}
    than crushing the one column that has to stay readable. */
 table.roster{min-width:520px}
 table.roster th:nth-child(2),table.roster td:nth-child(2){min-width:200px}
+
+/* ---------- data folder ---------- */
+.ddstatus{margin-bottom:8px}
+.ddline{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.ddlab{font-size:11px;letter-spacing:1.2px;color:var(--dim);text-transform:uppercase;font-weight:700}
+.ddline code{word-break:break-all}

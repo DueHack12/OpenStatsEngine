@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#11141c">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <title>OpenStatsEngine</title>
 <link rel="stylesheet" href="/styles.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📋</text></svg>">
 </head>
 <body>
 
@@ -224,6 +225,23 @@
       <button id="sb-disconnect" class="danger hidden">Disconnect</button>
     </div>
     <pre id="sb-out" class="out"></pre>
+  </div>
+
+  <div class="card">
+    <h2>Data Folder</h2>
+    <p class="hint">Where teams, rosters, games and backups are kept. Point it at a Google Drive,
+      OneDrive or Dropbox folder and the season syncs to the cloud by itself.
+      Run only one computer against a synced folder at a time.</p>
+    <div id="dd-status" class="ddstatus"></div>
+    <label>Folder<input id="dd-path" placeholder="e.g. G:\My Drive\OpenStatsEngine" spellcheck="false" autocomplete="off"></label>
+    <label class="inline"><input type="checkbox" id="dd-copy"> Copy the data in use now into it (only into a folder with no data yet)</label>
+    <div class="row">
+      <button id="dd-check">Check Folder</button>
+      <span class="spacer"></span>
+      <button id="dd-reset">Use the Default</button>
+      <button id="dd-save" class="primary">Use This Folder</button>
+    </div>
+    <pre id="dd-out" class="out"></pre>
   </div>
 </section>
 

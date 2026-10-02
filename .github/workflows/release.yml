@@ -1,0 +1,56 @@
+# Builds the Windows .exe, the macOS .app and a Linux binary, and attaches them
+# to the GitHub release. Runs when a release is published; can also be run by
+# hand from the Actions tab for an existing tag (e.g. to rebuild v1.4.2).
+name: Build apps
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach to (e.g. v1.4.2)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # A Mac, because the macOS app must be re-signed after packaging. The
+    # Windows and Linux builds are made on the same machine.
+    runs-on: macos-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Test
+        run: |
+          node test/engine.test.js && node test/v2.test.js && node test/v3.test.js \
+            && node test/v4.test.js && node test/v5.test.js && node test/v6.test.js \
+            && node test/v7.test.js && node test/mqtt.test.js && node test/announcer.test.js \
+            && node test/backup.test.js && node test/update.test.js && node test/real-data.test.js
+
+      - name: Package
+        run: node build/package.mjs all
+
+      - name: Smoke-test the packaged server
+        run: |
+          mkdir -p "$RUNNER_TEMP/ose" && cd "$RUNNER_TEMP/ose"
+          unzip -q "$GITHUB_WORKSPACE"/dist/*-macos.zip
+          ./OpenStatsEngine.app/Contents/MacOS/openstatsengine \
+            --port 8781 --data "$RUNNER_TEMP/ose-data" --no-backup --no-open --no-update-check &
+          for i in $(seq 30); do curl -sf localhost:8781/api/config >/dev/null && break; sleep 1; done
+          cd "$GITHUB_WORKSPACE" && node test/smoke.js
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/OpenStatsEngine-* --clobber

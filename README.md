@@ -44,7 +44,14 @@ publishes the stats as XML over HTTP — no SMB, no shared folders, no cloud.
 
 ## Install
 
-No dependencies, no build step. You need [Node.js 18+](https://nodejs.org).
+**Download the app** from the
+[latest release](https://github.com/DueHack12/OpenStatsEngine/releases/latest):
+`.exe` for Windows, `.zip` with a `.app` inside for macOS. Nothing else to
+install. The first launch asks you to confirm you trust it; the
+[manual](docs/MANUAL.md#quick-start) has the clicks for each system.
+
+**Or run from source.** No dependencies, no build step. You need
+[Node.js 18+](https://nodejs.org).
 
 ```bash
 git clone https://github.com/DueHack12/OpenStatsEngine.git
@@ -52,7 +59,8 @@ cd OpenStatsEngine
 node server.js
 ```
 
-On Windows double-click `start-windows.bat`; on a Mac, `start-mac.command`.
+On Windows double-click `start-windows.bat`; on a Mac, `start-mac.command`. They
+offer to update a git checkout each time they start.
 
 The server prints the addresses it is listening on:
 

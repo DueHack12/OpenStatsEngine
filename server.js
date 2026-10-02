@@ -2,12 +2,11 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { fileURLToPath } from 'node:url';
 import { Store } from './src/store.js';
 import { registerRoutes } from './src/api.js';
 import { ScorebotClient } from './src/integrations/scorebot.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { sea, packaged, VERSION, ROOT, defaultDataDir, openBrowser } from './src/runtime.js';
+import { checkForUpdate } from './src/update.js';
 
 /* ---------------- args ---------------- */
 const argv = process.argv.slice(2);
@@ -17,8 +16,24 @@ const arg = (name, def) => {
 };
 const PORT = parseInt(arg('port', process.env.OSE_PORT || '8080'), 10);
 const HOST = arg('host', process.env.OSE_HOST || '0.0.0.0');
-const DATA = path.resolve(arg('data', process.env.OSE_DATA || path.join(__dirname, 'data')));
-const PUBLIC = path.join(__dirname, 'public');
+const DATA = path.resolve(arg('data', process.env.OSE_DATA || defaultDataDir()));
+const PUBLIC = path.join(ROOT, 'public');
+// A packaged app is double-clicked, so it opens the entry page itself.
+const OPEN = argv.includes('--open') || (packaged && !argv.includes('--no-open'));
+const UPDATE_CHECK = !argv.includes('--no-update-check') && !process.env.OSE_NO_UPDATE_CHECK;
+
+/**
+ * Stop with a message. A packaged app runs in a console window that closes the
+ * moment the process ends, so it waits for Enter rather than taking the
+ * explanation with it.
+ */
+function fatal(msg) {
+  console.error(msg);
+  if (!packaged || !process.stdin.isTTY) process.exit(1);
+  console.error('\n  Press Enter to close.');
+  process.stdin.once('data', () => process.exit(1)).resume();
+}
+process.on('uncaughtException', (e) => fatal(`\n  OpenStatsEngine stopped: ${e.stack || e.message}`));
 
 const store = new Store(DATA);
 
@@ -72,7 +87,7 @@ const scorebot = new ScorebotClient({
 
 // `port` is mutable: a busy port falls back to the next free one, and the
 // monitor page shows whichever we actually ended up on.
-const ctx = { store, broadcast, scorebot, DATA, PUBLIC, port: PORT };
+const ctx = { store, broadcast, scorebot, DATA, PUBLIC, port: PORT, updateCheck: UPDATE_CHECK };
 registerRoutes(route, ctx);
 
 /* ---------------- static ---------------- */
@@ -86,13 +101,20 @@ const MIME = {
 
 function serveStatic(req, res, urlPath) {
   const rel = urlPath === '/' ? '/index.html' : urlPath;
+  const ext = path.extname(rel).toLowerCase();
+  const head = { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': 'no-cache' };
+  // Packaged, the web UI is carried inside the executable as named assets.
+  if (sea) {
+    const key = 'public' + path.posix.normalize(rel);
+    if (key.includes('..')) return false;
+    let body;
+    try { body = Buffer.from(sea.getAsset(key)); } catch { return false; }
+    res.writeHead(200, head).end(body);
+    return true;
+  }
   const file = path.join(PUBLIC, path.normalize(rel).replace(/^(\.\.[/\\])+/, ''));
   if (!file.startsWith(PUBLIC) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) return false;
-  const ext = path.extname(file).toLowerCase();
-  res.writeHead(200, {
-    'Content-Type': MIME[ext] || 'application/octet-stream',
-    'Cache-Control': 'no-cache'
-  });
+  res.writeHead(200, head);
   fs.createReadStream(file).pipe(res);
   return true;
 }
@@ -204,13 +226,13 @@ const RESERVED = { 8088: 'vMix Web Controller / HTTP API', 8099: 'vMix TCP API' 
 let attempts = 0;
 
 server.on('error', (e) => {
-  if (e.code !== 'EADDRINUSE') { console.error('Server error:', e.message); process.exit(1); }
+  if (e.code !== 'EADDRINUSE') { fatal(`Server error: ${e.message}`); return; }
   const busy = PORT + attempts;
   attempts++;
   if (attempts > 10) {
-    console.error(`\n  Ports ${PORT}-${busy} are all in use. Start with a specific port:\n` +
-                  `    node server.js --port 9000\n`);
-    process.exit(1);
+    fatal(`\n  Ports ${PORT}-${busy} are all in use. Start with a specific port:\n` +
+          `    ${packaged ? path.basename(process.execPath) : 'node server.js'} --port 9000\n`);
+    return;
   }
   const next = PORT + attempts;
   console.log(`  Port ${busy} is already in use${RESERVED[busy] ? ` (that is ${RESERVED[busy]})` : ''} — trying ${next}…`);
@@ -233,7 +255,7 @@ server.listen(PORT, HOST, () => {
   }
   const line = '='.repeat(64);
   console.log(`\n${line}`);
-  console.log('  OpenStatsEngine — live stats server');
+  console.log(`  OpenStatsEngine ${VERSION} — live stats server`);
   console.log(line);
   const kb = Math.round(store.dataSize() / 1024);
   console.log(`  Data folder : ${DATA}${kb ? `  (${kb} KB, backups in _backups/)` : ''}`);
@@ -249,7 +271,14 @@ server.listen(PORT, HOST, () => {
   console.log(`  Announcer view: ${base}/announcer`);
   console.log(`  Feed monitor  : ${base}/monitor`);
   console.log(`\n  Open the Network URL on any phone or tablet on this Wi-Fi.`);
-  console.log(`  Press Ctrl+C to stop.\n${line}\n`);
+  console.log(`  ${packaged ? 'Close this window or press' : 'Press'} Ctrl+C to stop.\n${line}\n`);
+
+  if (OPEN) openBrowser(`http://localhost:${port}/`);
+  checkForUpdate({ enabled: UPDATE_CHECK }).then((u) => {
+    if (!u) return;
+    console.log(`  Update available: OpenStatsEngine ${u.version} (you have ${VERSION}).`);
+    console.log(`  ${packaged ? 'Download it from' : 'Run `git pull`, or see'} ${u.url}\n`);
+  });
 
   if (store.config.activeGameId && store.config.scorebot?.enabled) {
     scorebot.start(store.config.activeGameId);

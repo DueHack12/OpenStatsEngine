@@ -194,6 +194,12 @@ the cloud as you go.
 2. **Check Folder** says what is already there.
    - **Already has OpenStatsEngine data** (from an earlier version, or another
      computer): it is used as it is. Nothing is copied over it, ever.
+   - **Data one folder down:** pointing at a folder that holds a source
+     install? Its data is in `data` inside it. Check Folder finds it and offers
+     it as a button.
+   - **Cannot be read:** on a Mac, Terminal (which OpenStatsEngine runs in)
+     needs access to Google Drive: **System Settings → Privacy & Security →
+     Files and Folders**, or add Terminal under **Full Disk Access**.
    - **Empty or new:** tick **Copy the data in use now** to bring your teams and
      games along, or leave it unticked to start fresh.
 3. **Use This Folder**, then close OpenStatsEngine and open it again. The switch

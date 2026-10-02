@@ -265,6 +265,8 @@ input[type=file]{padding:6px;font-size:12px}
 #annlink,#monlink{color:var(--dim);text-decoration:none;font-size:12px;font-weight:700;white-space:nowrap;
   border:1px solid var(--line);border-radius:7px;padding:6px 10px}
 #annlink:hover,#monlink:hover{color:var(--fg);border-color:var(--accent)}
+#updlink{color:var(--good);text-decoration:none;font-size:12px;font-weight:700;white-space:nowrap;
+  border:1px solid var(--good);border-radius:7px;padding:6px 10px}
 .ctl:disabled{opacity:.35;cursor:not-allowed}
 #recent-list li.undone{background:#241a1e;opacity:.75}
 #recent-list li.undone .rl-main > div:first-child{text-decoration:line-through}

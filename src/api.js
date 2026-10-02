@@ -11,6 +11,8 @@ import { parseRosterCSV, importRosterFromURL, importStatsAuto } from './importer
 import { importTeamsFromSheet } from './importers/sheets.js';
 import { localStamp } from './util.js';
 import { FEED_FIELDS } from './integrations/scorebot.js';
+import { VERSION, packaged } from './runtime.js';
+import { checkForUpdate } from './update.js';
 
 const raw = (body, type, filename, status = 200) => ({ __raw: true, body, type, filename, status });
 const bad = (msg, status = 400) => { const e = new Error(msg); e.status = status; throw e; };
@@ -77,7 +79,13 @@ export function registerRoutes(route, ctx) {
     scorebot: { ...store.config.scorebot, sources: scorebot.sources },
     scorebotStatus: scorebot.status,
     scorebotFields: FEED_FIELDS,
-    version: '1.1.0'
+    version: VERSION
+  }));
+
+  // A newer release, if there is one: { current, packaged, update: {version, name, url} | null }.
+  route('GET', '/api/update', async () => ({
+    current: VERSION, packaged,
+    update: await checkForUpdate({ enabled: ctx.updateCheck !== false })
   }));
 
   route('POST', '/api/config', ({ body }) => {

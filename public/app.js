@@ -61,6 +61,21 @@ async function init() {
   connectStream();
   setInterval(tickClock, 200);
   renderVmix();
+  showUpdate();
+}
+
+/** A quiet link in the top bar when a newer release is out. Never interrupts. */
+async function showUpdate() {
+  let r;
+  try { r = await api('/api/update'); } catch { return; }
+  if (!r?.update) return;
+  const a = $('#updlink');
+  a.href = r.update.url;
+  a.textContent = `⬆ v${r.update.version}`;
+  a.title = `OpenStatsEngine ${r.update.version} is available (this is ${r.current}). ` +
+    (r.packaged ? 'Download the new version and replace this one; your data stays where it is.'
+      : 'Run `git pull` in the OpenStatsEngine folder, or double-click the start script and answer Y, then restart.');
+  a.classList.remove('hidden');
 }
 
 function fillSelect(sel, pairs, keep = false) {

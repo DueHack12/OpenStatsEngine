@@ -6,6 +6,7 @@ For installation and a two-minute overview, see the [README](../README.md).
 ## Contents
 
 - [Quick start](#quick-start)
+- [Updating](#updating)
 - [Game-day workflow](#game-day-workflow)
 - [The announcer view](#the-announcer-view)
 - [vMix setup](#vmix-setup)
@@ -25,8 +26,38 @@ For installation and a two-minute overview, see the [README](../README.md).
 
 ## Quick start
 
-You need **Node.js 18 or newer** (get the LTS build from <https://nodejs.org>).
-There are no other dependencies — nothing to `npm install`.
+**The easiest way:** download the app from the
+[latest release](https://github.com/DueHack12/OpenStatsEngine/releases/latest).
+It needs nothing else installed, not even Node.
+
+| Platform | Download | Start it |
+|---|---|---|
+| Windows | `OpenStatsEngine-<version>-windows-x64.exe` | Double-click it |
+| macOS (Apple silicon or Intel) | `OpenStatsEngine-<version>-macos.zip` | Unzip, drag **OpenStatsEngine** to Applications, open it |
+| Linux | `OpenStatsEngine-<version>-linux-x64.tar.gz` | `./openstatsengine` |
+
+The app opens a console window, which is the server. Leave it open during the
+game; closing it stops the server. It also opens the entry page in your browser.
+
+> **First launch: the apps are not signed with a paid developer certificate,**
+> so the operating system asks once whether you trust them.
+>
+> - **Windows:** *Windows protected your PC* → **More info** → **Run anyway**.
+> - **macOS:** right-click **OpenStatsEngine** in Applications → **Open** →
+>   **Open**. On macOS 15 and later, if there is no Open button: try to open it
+>   once, then go to **System Settings → Privacy & Security** and click
+>   **Open Anyway**. If Terminal then says the server "cannot be opened", run
+>   `xattr -dr com.apple.quarantine /Applications/OpenStatsEngine.app` once.
+
+**Where the data goes in the app:** `Documents/OpenStatsEngine` in your home
+folder. The exception is a folder called `data` sitting next to the `.exe` (or
+Linux binary): if there is one, the app uses it. That is how you run it from a
+USB stick, and how you move a source install over: copy its `data` folder next
+to the `.exe`, or into `Documents` renamed to `OpenStatsEngine`.
+
+**From source** instead, you need **Node.js 18 or newer** (get the LTS build
+from <https://nodejs.org>). There are no other dependencies, so there is nothing
+to `npm install`.
 
 | Platform | How to start |
 |---|---|
@@ -60,7 +91,51 @@ node server.js --port 8080 --data "D:\Broadcast\stats-2026"
 ```
 
 `--data` is where everything is stored. Point it at a Dropbox/OneDrive folder and
-your season backs itself up.
+your season backs itself up. The apps take the same options: on Windows, make a
+shortcut to the `.exe` and add them to the end of its **Target**.
+
+| Option | |
+|---|---|
+| `--port 9000` | Listen on another port (default 8080) |
+| `--data <folder>` | Keep data somewhere else |
+| `--no-backup` | Skip the startup snapshot |
+| `--open` / `--no-open` | Open the entry page in a browser on start (the apps do by default) |
+| `--no-update-check` | Never ask GitHub about new releases (also `OSE_NO_UPDATE_CHECK=1`) |
+
+---
+
+## Updating
+
+At startup OpenStatsEngine asks GitHub, once, whether there is a newer release.
+If there is, the console says so and a green **⬆ v1.x.y** link appears in the
+top bar of the entry page, pointing at the release. Without internet it just
+stays quiet. Your teams, rosters and games are never touched by an update.
+
+- **App (.exe / .app):** download the new version from the link and use it in
+  place of the old one. On a Mac, drag the new app into Applications and choose
+  **Replace**. Data lives outside the app, so nothing needs moving.
+- **Git checkout:** the start scripts check for updates themselves and ask
+  *Update now? [y/N]*. Answer **Y** and they pull before starting. They start the
+  current version after 15 seconds with no answer, so a machine left unattended
+  before a game still comes up. Or run `git pull` yourself.
+- **Downloaded the source as a ZIP:** download the new ZIP and copy your `data`
+  folder into it, or switch to the app, which is easier to keep current.
+
+Restart the server after updating. A restart mid-game is safe: every entry is
+already on disk, and the clock picks up where it was.
+
+### Building the apps
+
+Each published GitHub release builds the apps and attaches them by itself (the
+**Build apps** workflow). To rebuild an existing release, open the **Actions**
+tab → **Build apps** → **Run workflow**, and give it the tag. To build locally:
+
+```bash
+node build/package.mjs            # this platform
+node build/package.mjs win linux  # Windows and Linux can be built anywhere
+```
+
+The macOS app has to be built on a Mac. Output goes to `dist/`.
 
 ---
 

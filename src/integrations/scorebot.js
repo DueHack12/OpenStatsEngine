@@ -104,12 +104,17 @@ function dig(obj, path) {
 }
 
 function pick(obj, paths) {
+  return pickPath(obj, paths)?.value;
+}
+
+/** Like pick, but also says which path supplied the value. */
+function pickPath(obj, paths) {
   for (const p of paths) {
     const v = dig(obj, p);
     if (v === undefined || v === null) continue;
     // Scoreboards pad unused fields with spaces; " " means absent, not a value.
     if (typeof v === 'string' && v.trim() === '') continue;
-    return v;
+    return { path: p.toLowerCase(), value: v };
   }
   return undefined;
 }
@@ -141,6 +146,14 @@ export function flattenPaths(obj, prefix = '', out = {}, depth = 0) {
 export function discoverPaths(raw) {
   const flat = flattenPaths(raw);
   const suggestions = {};
+  // Which field each exact candidate name belongs to. A loose substring match
+  // must never claim another field's own name: "clock" sits inside
+  // "playclock", and without this a feed with no play clock had its game
+  // clock suggested as the play clock.
+  const exactOwner = new Map();
+  for (const [key, list] of Object.entries(CANDIDATES)) {
+    for (const c of list) exactOwner.set(c.split('.').pop().toLowerCase(), key);
+  }
   // Drive this off CANDIDATES rather than FEED_FIELDS: a few fields are a
   // single on/off switch covering a per-side pair (shots, corners, saves are
   // read as homeShots/awayShots and so on), so the two lists do not match
@@ -153,6 +166,7 @@ export function discoverPaths(raw) {
       let score = 0;
       if (wants.includes(leaf)) score = 100 - wants.indexOf(leaf);
       else if (wants.some((w) => leaf === w.toLowerCase())) score = 80;
+      else if (exactOwner.has(leaf)) continue;
       else if (wants.some((w) => leaf.includes(w) || w.includes(leaf))) score = 40;
       if (!score) continue;
       // a clock field that doesn't look like a clock is probably the wrong one
@@ -183,8 +197,18 @@ export function normalizeFeed(raw, fieldMap = {}, opts = {}) {
       ? (Array.isArray(custom) ? custom : [custom, ...CANDIDATES[key]])
       : CANDIDATES[key];
   }
-  const clockRaw = pick(raw, map.clock);
-  const runningRaw = pick(raw, map.running);
+  const clockHit = pickPath(raw, map.clock);
+  const clockRaw = clockHit?.value;
+  const runningHit = pickPath(raw, map.running);
+  const runningRaw = runningHit?.value;
+  // The play/shot clock is never the same scoreboard field as the game clock.
+  // A field map saved with auxClock pointing at "Clock" made the play clock
+  // read 6:27 as 387 seconds, so a shared path is treated as absent.
+  const auxHit = pickPath(raw, map.auxClock);
+  const auxRaw = auxHit && auxHit.path !== clockHit?.path ? auxHit.value : undefined;
+  const auxRunHit = pickPath(raw, map.auxRunning);
+  const auxRunRaw = auxRunHit && auxRunHit.path !== runningHit?.path
+    && auxRunHit.path !== clockHit?.path ? auxRunHit.value : undefined;
   return {
     period: toInt(pick(raw, map.period)),
     clockMs: typeof clockRaw === 'number' ? clockRaw : parseClock(clockRaw),
@@ -206,28 +230,36 @@ export function normalizeFeed(raw, fieldMap = {}, opts = {}) {
     awayCorners: toInt(pick(raw, map.awayCorners)),
     homeSaves: toInt(pick(raw, map.homeSaves)),
     awaySaves: toInt(pick(raw, map.awaySaves)),
-    auxClockMs: auxMs(pick(raw, map.auxClock)),
-    auxRunning: parseRunning(pick(raw, map.auxRunning), opts.runningValues),
+    auxClockMs: auxMs(auxRaw),
+    auxRunning: parseRunning(auxRunRaw, opts.runningValues),
     // kept for diagnostics: a status the feed sent that we could not read
     _unreadRunning: runningRaw !== undefined && parseRunning(runningRaw, opts.runningValues) === undefined
       ? runningRaw : undefined
   };
 }
 
+const AUX_MAX_MS = 100000;
+
 /**
  * A play or shot clock is at most 40 seconds, so a bare number is read as
  * seconds unless it is far too large to be one. That removes the main ambiguity
  * a scoreboard feed presents here — 24 means 24 seconds, not 24 milliseconds.
+ *
+ * The display is two digits, so anything reaching 100 seconds is some other
+ * clock read by mistake and is dropped rather than shown.
  */
 export function auxMs(v) {
   if (v == null || v === '') return undefined;
-  if (typeof v === 'number') return v > 200 ? Math.round(v) : Math.round(v * 1000);
-  const s = String(v).trim();
-  if (/^\d+(\.\d+)?$/.test(s)) {
-    const n = parseFloat(s);
-    return n > 200 ? Math.round(n) : Math.round(n * 1000);
+  let ms;
+  if (typeof v === 'number') ms = v > 200 ? Math.round(v) : Math.round(v * 1000);
+  else {
+    const s = String(v).trim();
+    if (/^\d+(\.\d+)?$/.test(s)) {
+      const n = parseFloat(s);
+      ms = n > 200 ? Math.round(n) : Math.round(n * 1000);
+    } else ms = parseClock(s);
   }
-  return parseClock(s);
+  return Number.isFinite(ms) && ms < AUX_MAX_MS ? ms : undefined;
 }
 
 /**

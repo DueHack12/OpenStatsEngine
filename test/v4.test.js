@@ -93,6 +93,31 @@ eq('clock reported running', aux(fb.id, 'football').running, true);
 w = applyFeed(store, fb.id, normalizeFeed({ playClock: 12, playClockRunning: false }), { sources: DEFAULT_SOURCES });
 ok('aux_stop written', w.some((e) => e.type === 'aux_stop'));
 
+console.log('\n== the game clock is never read as the play clock ==');
+// A Sportzcast board with no play clock wired: "clock" sits inside
+// "playclock", and the suggested map used to point the play clock at Clock.
+const noPlayClock = { Quarter: '1', Clock: '6:27', ClockStatus: 'R', HomeScore: '0', GuestScore: '0',
+  Down: '1', ToGo: '10', HomePossession: '<', GuestPossession: ' ' };
+const sug = discoverPaths(noPlayClock).suggestions;
+ok('no play clock suggested from Clock', !sug.auxClock, JSON.stringify(sug.auxClock ?? null));
+ok('no play clock running flag suggested from Clock', !sug.auxRunning, JSON.stringify(sug.auxRunning ?? null));
+ok('nor from the game clock running flag',
+  !discoverPaths({ data: { gameClock: '7:22', clockRunning: true } }).suggestions.auxRunning);
+eq('the game clock is still suggested', sug.clock?.[0].path, 'Clock');
+const misMapped = normalizeFeed(noPlayClock, { auxClock: 'Clock', auxRunning: 'Clock' });
+eq('a saved map pointing the play clock at Clock is ignored', misMapped.auxClockMs, undefined);
+eq('game clock still read', misMapped.clockMs, 387000);
+eq('play clock running not read from Clock', misMapped.auxRunning, undefined);
+eq('nor from ClockStatus', normalizeFeed(noPlayClock, { auxRunning: 'ClockStatus' }).auxRunning, undefined);
+eq('"6:27" is not a play clock', auxMs('6:27'), undefined);
+eq('387000 ms is not a play clock', auxMs(387000), undefined);
+eq('99 seconds still is', auxMs(99), 99000);
+const fb3 = store.createGame({ sport: 'football', homeTeamId: 'home', awayTeamId: 'away', date: '2026-10-09' });
+w = applyFeed(store, fb3.id, misMapped, { sources: DEFAULT_SOURCES });
+eq('no play clock events from the mis-mapped feed', w.filter((e) => e.type.startsWith('aux')).length, 0);
+eq('play clock stays at 40', auxNow(aux(fb3.id, 'football')), 40000);
+ok('auto-reset left on', aux(fb3.id, 'football').autoReset === true);
+
 console.log('\n== sports with no secondary clock ignore the field ==');
 store.saveRoster('home', 'hockey', [{ number: '1', name: 'P' }], 'replace');
 store.saveRoster('away', 'hockey', [{ number: '9', name: 'O' }], 'replace');

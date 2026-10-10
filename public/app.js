@@ -1939,8 +1939,6 @@ function applySuggestedMap() {
   $('#sb-map').value = JSON.stringify(S.suggestedMap, null, 1);
   // anything the sample did not contain is better handled by hand
   const found = Object.keys(S.suggestedMap);
-  // Sportzcast marks possession per side instead of naming the team
-  if (found.includes('homePossession') || found.includes('awayPossession')) found.push('possession');
   for (const f of (S.cfg.scorebotFields || [])) {
     S.sources[f.key] = found.includes(f.key) ? 'scorebot' : 'manual';
   }

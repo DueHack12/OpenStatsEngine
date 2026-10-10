@@ -284,6 +284,38 @@ const recovered = deriveGame(store, G);
 ok('torn line skipped, game still derives', recovered.teams.home.points === 0 && recovered.counts.events > 5,
   `${recovered.counts.events} events read`);
 
+console.log('\n== play-by-play leaves out the clock ==');
+const pbp = store.createGame({
+  sport: 'football', homeTeamId: 'home-team', awayTeamId: 'away-team', date: '2026-10-09'
+}).id;
+const ms = (c) => at(c).clockMs;
+store.appendEvent(pbp, { type: 'game_start', ...at('12:00') });
+store.appendEvent(pbp, { type: 'clock_start', ...at('12:00') });
+// 150 plays, each wrapped in the clock traffic a scoreboard feed writes
+for (let i = 0; i < 150; i++) {
+  const c = `${11 - Math.floor(i / 15)}:${String(59 - (i % 15) * 4).padStart(2, '0')}`;
+  store.appendEvent(pbp, { type: 'clock_stop', source: 'scorebot', ...at(c) });
+  store.appendEvent(pbp, { type: 'clock_set', source: 'scorebot', ...at(c), data: { ms: ms(c) } });
+  store.appendEvent(pbp, { type: 'stat', team: 'home', action: 'rush', ...at(c), data: { rusher: pid(hR, '22'), yards: 1 } });
+  store.appendEvent(pbp, { type: 'clock_start', source: 'scorebot', ...at(c) });
+}
+store.appendEvent(pbp, { type: 'clock_set', ...at('1:00'), data: { ms: 60000 } });
+const gp = deriveGame(store, pbp);
+const clockTypes = ['clock_start', 'clock_stop', 'clock_set'];
+ok('no clock lines in the timeline', !gp.timeline.some((t) => clockTypes.includes(t.type)),
+  gp.timeline.filter((t) => clockTypes.includes(t.type)).length + ' found');
+eq('every play is there', gp.timeline.filter((t) => t.type === 'stat').length, 150);
+eq('other entries still listed', gp.timeline.filter((t) => t.type === 'game_start').length, 1);
+ok('the game clock is unaffected', gp.clock.clockMs === 60000 && gp.clock.running, gp.clock.clock);
+eq('the monitor still sees the clock writes', gp.recentLog[0].label, 'Clock set to 1:00');
+eq('recent log is newest first, 12 long', gp.recentLog.length, 12);
+// game start + 210 plays is more than the live view's 200
+for (let i = 0; i < 60; i++) store.appendEvent(pbp, { type: 'stat', team: 'away', action: 'rush', ...at('0:30'), data: { rusher: pid(aR, '9'), yards: 1 } });
+eq('the live view keeps the latest 200', deriveGame(store, pbp).timeline.length, 200);
+const full = deriveGame(store, pbp, { fullTimeline: true }).timeline;
+eq('an export gets the whole game', full.length, 211);
+eq('starting from the first entry', full[full.length - 1].type, 'game_start');
+
 fs.rmSync(root, { recursive: true, force: true });
 console.log(`\n${'='.repeat(50)}\n  ${pass} passed, ${fail} failed\n${'='.repeat(50)}\n`);
 process.exit(fail ? 1 : 0);

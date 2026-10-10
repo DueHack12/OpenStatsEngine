@@ -557,7 +557,7 @@ export function registerRoutes(route, ctx) {
   };
   route('GET', '/api/games/:id/export/:file', ({ params }) => {
     const fn = exp[params.file] || bad(`Unknown export "${params.file}". Try: ${Object.keys(exp).join(', ')}`, 404);
-    return fn(deriveGame(store, params.id), params.id);
+    return fn(deriveGame(store, params.id, { fullTimeline: true }), params.id);
   });
 
   /**
@@ -684,7 +684,7 @@ export function registerRoutes(route, ctx) {
         feed: feedOwnership(),
         counts: g.counts,
         // Newest first: the monitor is read at a glance, mid-game.
-        recent: (g.timeline || []).slice(-12).reverse()
+        recent: g.recentLog || []
       };
     }
 

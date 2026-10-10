@@ -888,12 +888,17 @@ Per game, from the **Export** tab:
 
 | File | Contents |
 |---|---|
-| `report.pdf` | Full report: linescore, team comparison, scoring summary, box scores, play-by-play |
+| `report.pdf` | Full report: linescore, team comparison, scoring summary, box scores, play-by-play of the whole game |
 | `summary.pdf` | Same without play-by-play |
 | `boxscore.csv` | One row per player, every stat column |
 | `teamstats.csv` | Team comparison |
 | `scoring.csv` | Scoring plays |
 | `pbp.csv` | Every entry with the wall-clock time it was logged, plus undos and corrections |
+
+The play-by-play lists plays, not the clock: clock starts, stops and sets (by
+hand or from the Scorebot) are left out of it, of the console's recent list and
+of the vMix plays feed. They are still in the log, so `pbp.csv` and the Feed
+Monitor show them.
 
 Per team, per season: `season.csv` — every game plus computed season totals.
 

@@ -10,7 +10,7 @@ const OTHER = { home: 'away', away: 'home' };
  * Pure function of (meta, events, rosters) — no mutation of stored data — so it
  * is safe to call on every request and always reflects the log exactly.
  */
-export function deriveGame(store, gameId, { now = Date.now() } = {}) {
+export function deriveGame(store, gameId, { now = Date.now(), fullTimeline = false } = {}) {
   const meta = store.getGame(gameId);
   if (!meta) throw new Error('No such game');
   const sport = getSport(meta.sport);
@@ -32,6 +32,7 @@ export function deriveGame(store, gameId, { now = Date.now() } = {}) {
     extra: sport.initExtra ? sport.initExtra() : {},
     scoringPlays: [],
     timeline: [],
+    log: [],
     runs: { current: null, best: { home: 0, away: 0 } },
     lastScore: { home: null, away: null }
   };
@@ -115,7 +116,7 @@ export function deriveGame(store, gameId, { now = Date.now() } = {}) {
     if (ev.type === 'stat' && ev.action) {
       sport.apply(acc, ev, ctx);
       const line = describe(sport, ev, nameOf, clockState);
-      if (line) acc.timeline.push(line);
+      if (line) { acc.timeline.push(line); acc.log.push(line); }
     } else if (ev.type === 'possession') {
       possession = ev.team;
     } else if (ev.type === 'situation_set') {
@@ -143,7 +144,10 @@ export function deriveGame(store, gameId, { now = Date.now() } = {}) {
       };
     } else if (ev.type && ev.type !== 'stat') {
       const line = describeSystem(ev, clockState, meta);
-      if (line) acc.timeline.push(line);
+      if (line) {
+        acc.log.push(line);
+        if (!CLOCK_ONLY.has(ev.type)) acc.timeline.push(line);
+      }
     }
 
     // football (and any sport with explicit down/distance) drives possession
@@ -247,7 +251,10 @@ export function deriveGame(store, gameId, { now = Date.now() } = {}) {
       ? { home: acc.extra.goalies.home || null, away: acc.extra.goalies.away || null }
       : null,
     scoringPlays: acc.scoringPlays,
-    timeline: acc.timeline.slice(-200).reverse(),
+    // The live console only needs the latest plays; an export needs them all.
+    timeline: (fullTimeline ? acc.timeline : acc.timeline.slice(-200)).reverse(),
+    // Everything logged, clock entries included, for the feed monitor.
+    recentLog: acc.log.slice(-12).reverse(),
     leaders: computeLeaders(sport, acc),
     droughts,
     runs: acc.runs,
@@ -355,6 +362,13 @@ function describe(sport, ev, nameOf, clockState) {
     corrected: !!ev.corrected
   };
 }
+
+/**
+ * Clock starts, stops and sets are not plays. A scoreboard feed writes them by
+ * the hundred, and in the play-by-play they buried the real plays: a game's
+ * report started in the 3rd quarter because they had filled the list.
+ */
+const CLOCK_ONLY = new Set(['clock_start', 'clock_stop', 'clock_set']);
 
 function describeSystem(ev, clockState, meta) {
   const d = ev.data || {};

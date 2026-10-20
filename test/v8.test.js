@@ -216,6 +216,68 @@ call('POST', '/api/teams/:id/stats/import', { params: { id: 'river' }, body: { s
 eq('a per-game import leaves the roster alone', store.getRoster('river', 'football').length, before);
 eq('...and is logged under its own season', store.readImportLog({ teamId: 'river' }).at(-1).season, '2025');
 
+console.log('\n== a roster is never overwritten without a yes ==');
+store.saveTeam({ name: 'Guard' });
+const G = { id: 'guard' };
+const rosterOf = () => store.getRoster('guard', 'football');
+const refused = async (label, fn) => {
+  try { await fn(); ok(label, false, 'went through'); return null; }
+  catch (e) { ok(label, e.status === 409 && e.details?.needsConfirm === true, e.message); return e.details; }
+};
+const rimport = async (csv, extra = {}) => call('POST', '/api/teams/:id/roster/import', { params: G, body: { sport: 'football', csv, ...extra } });
+const rsave = (players, extra = {}) => call('POST', '/api/teams/:id/roster', { params: G, body: { sport: 'football', players, ...extra } });
+
+await rimport('No,Name,Pos,Yr\n7,Jake Miller,QB,12\n22,Chris Doyle,RB,11\n80,Ryan Alves,WR,12');
+eq('an import that only adds needs no question', rosterOf().length, 3);
+const ids = Object.fromEntries(rosterOf().map((p) => [p.name, p.id]));
+
+await rimport('No,Name\n7,Jake Miller\n44,Nick Brady');
+eq('a file without a Pos column leaves positions alone', rosterOf().find((p) => p.name === 'Jake Miller').pos, 'QB');
+eq('...and its new player goes straight in', rosterOf().length, 4);
+
+const pvr = await rimport('No,Name,Pos\n7,Jake Miller,WR', { preview: true });
+eq('preview lists what would change', pvr.changes.changed.map((c) => [c.name, c.fields]), [['Jake Miller', { pos: ['QB', 'WR'] }]]);
+const d1 = await refused('changing a player on the roster is refused until confirmed', () => rimport('No,Name,Pos\n7,Jake Miller,WR'));
+eq('...the refusal says exactly what would change', d1?.changes.changed[0]?.fields, { pos: ['QB', 'WR'] });
+eq('...and nothing was written', rosterOf().find((p) => p.name === 'Jake Miller').pos, 'QB');
+await rimport('No,Name,Pos\n7,Jake Miller,WR', { confirm: true });
+eq('confirmed, it goes through', rosterOf().find((p) => p.name === 'Jake Miller').pos, 'WR');
+
+const d2 = await refused('a jersey change is a change too', () => rimport('No,Name\n8,Jake Miller'));
+eq('...shown as old → new', d2?.changes.changed[0]?.fields, { number: ['7', '8'] });
+
+const d3 = await refused('replacing the roster is refused until confirmed', () => rimport('No,Name\n7,Jake Miller\n22,Chris Doyle', { mode: 'replace' }));
+eq('...listing who would be removed', d3?.changes.removed.map((p) => p.name), ['Nick Brady', 'Ryan Alves']);
+eq('...and the roster is untouched', rosterOf().length, 4);
+await rimport('No,Name\n7,Jake Miller\n22,Chris Doyle', { mode: 'replace', confirm: true });
+eq('confirmed, the replace goes through', rosterOf().map((p) => p.name), ['Jake Miller', 'Chris Doyle']);
+eq('players the file still names keep their ids, so logged plays keep their names',
+  rosterOf().map((p) => p.id), [ids['Jake Miller'], ids['Chris Doyle']]);
+
+// The roster editor sends the version it loaded.
+const loaded = call('GET', '/api/teams/:id/roster', { params: G, query: { sport: 'football' } });
+const edited = loaded.players.filter((p) => p.name !== 'Chris Doyle');
+const saved = rsave(edited, { mode: 'replace', baseVersion: loaded.version });
+eq('the editor\'s own edits save without a second question', [saved.count, saved.version !== loaded.version], [1, true]);
+await rimport('No,Name\n5,Late Addition');                                  // someone else adds a player
+const stale = await refused('a save from a stale editor is refused',
+  () => rsave([...edited, { number: '99', name: 'Typed In' }], { mode: 'replace', baseVersion: saved.version }));
+eq('...naming the player it would drop', stale?.changes.removed.map((p) => p.name), ['Late Addition']);
+eq('...and nothing was written', rosterOf().length, 2);
+rsave([...edited, { number: '99', name: 'Typed In' }], { mode: 'replace', baseVersion: saved.version, confirm: true });
+eq('confirmed, the save goes through', rosterOf().map((p) => p.name), ['Jake Miller', 'Typed In']);
+await refused('a save with no version that would change a player is refused', () => rsave([{ number: '7', name: 'Jake Miller', pos: 'QB' }]));
+
+call('POST', '/api/teams', { body: { id: 'guard', name: 'Guard', sports: { football: { roster: [] } } } });
+eq('a team profile save cannot carry a roster with it', rosterOf().length, 2);
+
+// Two newcomers sharing a name used to merge into one under 'merge'.
+store.saveRoster('guard', 'football', [{ number: '3', name: 'J. Smith' }, { number: '4', name: 'J. Smith' }], 'add');
+eq('"add" mode only ever adds', rosterOf().map((p) => `${p.number} ${p.name}`), ['3 J. Smith', '4 J. Smith', '7 Jake Miller', '99 Typed In']);
+const jake = rosterOf().find((p) => p.name === 'Jake Miller');
+store.saveRoster('guard', 'football', [{ number: '7', name: 'Jake Miller', pos: 'K', year: '9' }], 'add');
+eq('...and never touches a player already there', rosterOf().find((p) => p.name === 'Jake Miller'), jake);
+
 console.log('\n== the log is part of the data ==');
 fs.appendFileSync(store.importLogPath, '{"torn":');
 eq('a torn final line is skipped', store.readImportLog().length, 4);

@@ -12,7 +12,12 @@ async function api(path, opts = {}) {
   });
   const ct = res.headers.get('content-type') || '';
   const payload = ct.includes('json') ? await res.json() : await res.text();
-  if (!res.ok) throw new Error(payload?.error || payload || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const e = new Error(payload?.error || payload || `HTTP ${res.status}`);
+    e.status = res.status;
+    e.payload = payload;
+    throw e;
+  }
   return payload;
 }
 
@@ -30,6 +35,7 @@ const S = {
   sticky: { home: {}, away: {} },
   statsView: 'team', showArchived: false, editingTeamId: null, rosterDirty: false,
   sources: {}, suggestedMap: null, importText: '', importBytes: null, importName: '', aux: null,
+  rosterVersion: null,
   clock: { base: 0, at: 0, running: false, down: true },
   rosterEdit: []
 };
@@ -1376,6 +1382,7 @@ async function selectTeam(id) {
 
 function newTeam() {
   S.rosterEdit = [];
+  S.rosterVersion = null;
   renderRosterTable();
   $('#histbody').innerHTML = '';
   selectTeam('');
@@ -1391,7 +1398,7 @@ async function loadTeamTab() {
   $('#rs-who').textContent = who;
   $('#hist-who').textContent = name ? `— ${name}` : '';
   if (!id) {
-    S.rosterEdit = []; renderRosterTable();
+    S.rosterEdit = []; S.rosterVersion = null; renderRosterTable();
     $('#histbody').innerHTML = '<div class="hint">Pick a team to see its history.</div>';
     return;
   }
@@ -1425,6 +1432,7 @@ async function loadRoster(opts = {}) {
   try {
     const r = await api(`/api/teams/${team}/roster?sport=${$('#rs-sport').value}`);
     S.rosterEdit = r.players.map((p) => ({ ...p }));
+    S.rosterVersion = r.version || null;
     S.rosterDirty = false;
     renderRosterTable();
   } catch (e) { toast(e.message, 'err'); }
@@ -1539,11 +1547,15 @@ async function saveRoster() {
     const before = S.rosterEdit.length;
     const players = S.rosterEdit.filter((p) => String(p.name || '').trim());
     const dropped = before - players.length;
-    const r = await api(`/api/teams/${team}/roster`, {
+    // The version it was loaded at: if the roster has changed since, the
+    // server asks before this save overwrites that.
+    const r = await withRosterConfirm((confirm) => api(`/api/teams/${team}/roster`, {
       method: 'POST',
-      body: JSON.stringify({ sport: $('#rs-sport').value, players, mode: 'replace' })
-    });
+      body: JSON.stringify({ sport: $('#rs-sport').value, players, mode: 'replace', baseVersion: S.rosterVersion, confirm })
+    }), 'Save anyway');
+    if (!r) return toast('Not saved — the roster was left as it is', 'err');
     S.rosterEdit = r.roster.map((p) => ({ ...p }));
+    S.rosterVersion = r.version || null;
     S.rosterDirty = false;
     renderRosterTable();
     if (S.gameId) await refreshState();
@@ -1595,28 +1607,80 @@ function currentTeamId() {
 async function importRoster({ url, csv, preview = false }) {
   const team = currentTeamId(); if (!team) return;
   const out = $('#rs-out');
+  // The import reloads the editor, which would throw away edits not yet saved.
+  if (!preview && S.rosterDirty && !(await ask({
+    title: 'Discard unsaved roster edits?',
+    body: 'The roster above has changes that have not been saved. Importing reloads it from the server, and those edits would be lost.',
+    yes: 'Discard and import', no: 'Keep my edits'
+  }))) return;
   out.textContent = 'Working…';
   try {
-    const r = await api(`/api/teams/${team}/roster/import`, {
+    const mode = $('#rs-replace').checked ? 'replace' : 'merge';
+    const r = await withRosterConfirm((confirm) => api(`/api/teams/${team}/roster/import`, {
       method: 'POST',
-      body: JSON.stringify({
-        sport: $('#rs-sport').value, url, csv, preview,
-        mode: $('#rs-replace').checked ? 'replace' : 'merge'
-      })
-    });
+      body: JSON.stringify({ sport: $('#rs-sport').value, url, csv, preview, mode, confirm })
+    }), mode === 'replace' ? 'Replace the roster' : 'Import and overwrite');
+    if (!r) {
+      out.textContent = 'Cancelled — the roster was not changed.';
+      return;
+    }
     if (r.preview) {
       out.textContent = `PREVIEW — ${r.players.length} players found (nothing saved yet)\n` +
         (r.warnings?.length ? r.warnings.join('\n') + '\n' : '') +
-        r.players.slice(0, 60).map((p) => `${String(p.number).padStart(3)}  ${p.name}  ${p.pos || ''} ${p.year || ''}`).join('\n');
+        r.players.slice(0, 60).map((p) => `${String(p.number).padStart(3)}  ${p.name}  ${p.pos || ''} ${p.year || ''}`).join('\n') +
+        (r.changes ? `\n\n${mode === 'replace' ? 'REPLACING' : 'MERGING'} INTO THE ROSTER:\n${describeRosterChanges(r.changes)}` +
+          (r.changes.changed.length || r.changes.removed.length ? '\n\nImporting will ask you to confirm before anyone on the roster is changed or removed.' : '') : '');
     } else {
       out.textContent = `Imported ${r.imported} players. Roster now has ${r.total}.` +
-        (r.warnings?.length ? '\n' + r.warnings.join('\n') : '');
+        (r.warnings?.length ? '\n' + r.warnings.join('\n') : '') +
+        (r.changes ? `\n\n${describeRosterChanges(r.changes)}` : '');
       S.rosterEdit = r.roster.map((p) => ({ ...p }));
+      S.rosterVersion = r.version || null;
+      S.rosterDirty = false;
       renderRosterTable();
       if (S.gameId) await refreshState();
       toast('Roster imported', 'ok');
     }
   } catch (e) { out.textContent = 'Error: ' + e.message; toast(e.message, 'err'); }
+}
+
+/** A roster save's effect on players already on it, as plain text. */
+function describeRosterChanges(ch, max = 12) {
+  const who = (p) => `#${p.number || '?'} ${p.name || '(no name)'}`;
+  const list = (items, fmt) => {
+    const lines = items.slice(0, max).map((x) => '   ' + fmt(x));
+    if (items.length > max) lines.push(`   … and ${items.length - max} more`);
+    return lines;
+  };
+  const lines = [];
+  if (ch.changed?.length) {
+    lines.push(`Changes ${ch.changed.length} player${ch.changed.length === 1 ? '' : 's'} already on the roster:`,
+      ...list(ch.changed, (c) => `${who(c)}: ` + Object.entries(c.fields)
+        .map(([k, [a, b]]) => `${k} ${a || '(blank)'} → ${b || '(blank)'}`).join(', ')));
+  }
+  if (ch.removed?.length) {
+    lines.push(`Removes ${ch.removed.length} player${ch.removed.length === 1 ? '' : 's'}:`, ...list(ch.removed, who));
+  }
+  if (ch.added?.length) lines.push(`Adds ${ch.added.length} new player${ch.added.length === 1 ? '' : 's'}.`);
+  return lines.length ? lines.join('\n') : 'No change to the roster.';
+}
+
+/**
+ * Make a roster write; if the server answers that it would change or remove
+ * players already on the roster, show exactly who and how, and send it again
+ * only on a yes. Resolves null when the operator says no.
+ */
+async function withRosterConfirm(send, yes) {
+  try { return await send(false); }
+  catch (e) {
+    if (!e.payload?.needsConfirm) throw e;
+    const ok = await ask({
+      title: 'Overwrite players on the roster?',
+      body: `${e.message}\n\n${describeRosterChanges(e.payload.changes)}`,
+      yes, no: 'Cancel'
+    });
+    return ok ? send(true) : null;
+  }
 }
 
 /** Client-side format sniff, purely so the operator sees what they picked. */
@@ -1762,7 +1826,10 @@ async function importStats(preview = false) {
       toast(r.replaced ? 'Stats imported — earlier set replaced and logged' : 'Stats imported', 'ok');
       // Reloading would throw away roster edits that have not been saved yet.
       if (r.rosterAdded?.length && !S.rosterDirty) await loadRoster();
-      else if (r.rosterAdded?.length) out.textContent += '\n\nYou have unsaved roster edits, so the roster above was not reloaded.';
+      else if (r.rosterAdded?.length) {
+        out.textContent += '\n\nYou have unsaved roster edits, so the roster above was not reloaded. ' +
+          'Saving it will ask before it drops the players just added.';
+      }
       await loadHistory({ quiet: true });
     }
   } catch (e) { out.textContent = 'Error: ' + e.message; toast(e.message, 'err'); }

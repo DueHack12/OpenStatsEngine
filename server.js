@@ -217,7 +217,9 @@ const server = http.createServer(async (req, res) => {
       const status = e.status || (/unknown|no such|not found/i.test(e.message) ? 404 : 400);
       if (!res.headersSent) {
         res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
-        res.end(JSON.stringify({ error: e.message }));
+        // `details` carries anything the page needs to act on, such as the
+        // changes a roster save is waiting for confirmation of.
+        res.end(JSON.stringify({ error: e.message, ...(e.details || {}) }));
       }
       console.error(`[${req.method}] ${pathname} -> ${status}: ${e.message}`);
       return;

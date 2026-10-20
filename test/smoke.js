@@ -392,6 +392,21 @@ console.log('\n== errors are sane ==');
     catch (e) { ok('404s an unknown game', /404|No such game/.test(e.message)); }
   }
 
+  console.log('\n== a roster import asks before it overwrites anyone ==');
+  {
+    const send = (extra) => fetch(`${BASE}/api/teams/${home.id}/roster/import`, { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sport: 'football', csv: 'No,Name,Pos\n7,Jake Miller,TE', ...extra }) });
+    const res = await send({});
+    const body = await res.json();
+    check('a change to a rostered player is held back', res.status, 409);
+    ok('with the change spelled out', body.needsConfirm && body.changes.changed[0]?.fields.pos?.join('>') === 'QB>TE',
+      JSON.stringify(body.changes?.changed[0]?.fields));
+    const ros = await j(`/api/teams/${home.id}/roster?sport=football`);
+    check('and the roster is unchanged', ros.players.find((p) => p.number === '7').pos, 'QB');
+    ok('the roster carries a version for the editor', /^[0-9a-f]{12}$/.test(ros.version), ros.version);
+  }
+
   console.log('\n== HUDL season PDF over HTTP, and the import log ==');
   {
     // The browser sends a PDF as base64 in the JSON body, since it is not text.

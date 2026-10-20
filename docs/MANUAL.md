@@ -275,8 +275,21 @@ players or stats**):
 
 Imports **merge** by default, so re-importing an updated export refreshes existing
 players (matched on name, so a jersey change updates rather than duplicates)
-without wiping anyone you added by hand. Tick **Replace the roster instead of
-merging into it** to start clean.
+without wiping anyone you added by hand. A blank cell, or a column the file does
+not have, leaves the roster's value alone rather than clearing it. Tick
+**Replace the roster instead of merging into it** to start clean; players the
+file still names keep their identity, so plays already logged against them keep
+their names.
+
+**A roster is never overwritten without asking.** An import that only adds new
+players goes straight in. One that would change a player already on the roster
+— a new position, a new jersey number — or remove anyone stops and shows you
+exactly who and what (`#7 Jake Miller: pos QB → TE`), and only goes ahead when
+you say so; **Preview** shows the same list first. The roster editor does the
+same if the roster was changed somewhere else after you opened it (an import, or
+another device): **Save Roster** shows which players your save would drop or
+undo, rather than quietly writing over them. Importing a roster while the
+editor has unsaved edits asks before discarding them.
 
 ### The roster editor
 
@@ -924,7 +937,8 @@ week's HUDL report, say — replaces it. Nothing is lost when that happens:
   with the season totals when the file had them.
 
 A stats import also adds to the roster any player the roster does not have yet,
-and is logged doing so. It never edits a player who is already there: HUDL's
+and is logged doing so. It never edits or removes a player who is already there,
+so it never needs to ask: HUDL's
 `D. Kane` is matched to the roster's `Dylan Kane` (same jersey, same surname,
 same first initial) instead of being added twice, positions and grades are left
 alone, and a per-game file — jersey numbers, no names — adds nobody.
@@ -1103,7 +1117,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 767 tests on a fresh clone (786 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers, PDF text extraction, the import log,
+Runs 795 tests on a fresh clone (814 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers, PDF text extraction, the import log,
 scorebot normalisation, field-source gating, feed-loss and stalled-feed detection,
 board-vs-entered score separation, baseball bases/count, per-sport scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,

@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { id, slug, localStamp, localDate, clone } from './util.js';
 
 /**
@@ -154,43 +155,93 @@ export class Store {
   }
 
   /**
-   * Replace or merge a team's roster for one sport.
-   * mode 'merge' keeps players not present in the incoming list (so a partial
-   * HUDL export can't wipe the roster you hand-entered on game day).
+   * What saving `players` into a team's roster would do, without saving it:
+   * the roster that results, and which players it adds, changes and removes.
+   * saveRoster writes exactly this, so a preview or a confirmation can never
+   * disagree with the save that follows it.
+   *
+   *   merge   — keeps players not in the incoming list (so a partial HUDL
+   *             export can't wipe the roster you hand-entered on game day) and
+   *             only fills in what the incoming list says: a blank cell is a
+   *             column the file does not have, not an instruction to clear one.
+   *   replace — the incoming list becomes the roster. Players it still names
+   *             keep their ids, so the plays already logged against them keep
+   *             their names.
+   *   add     — only adds players; never touches one already there.
    */
-  saveRoster(teamId, sport, players, mode = 'merge') {
-    const team = this.getTeam(teamId);
-    if (!team) throw new Error(`Unknown team: ${teamId}`);
-    team.sports[sport] = team.sports[sport] || { roster: [], season: {} };
-    const cur = team.sports[sport].roster || [];
-    let next;
-    if (mode === 'replace') {
-      next = players.map((p) => ({ ...p, id: p.id || id('p_') }));
-    } else {
-      const byKey = new Map();
-      const keyOf = (p) => `${String(p.number ?? '').trim()}|${String(p.name || '').trim().toLowerCase()}`;
-      for (const p of cur) byKey.set(keyOf(p), p);
-      for (const p of players) {
-        const k = keyOf(p);
-        // also match on name alone so a jersey change updates rather than duplicates
-        const byName = cur.find((c) => c.name && p.name &&
-          c.name.trim().toLowerCase() === p.name.trim().toLowerCase());
-        const target = byKey.get(k) || byName;
-        if (target) Object.assign(target, { ...p, id: target.id });
-        else { const np = { ...p, id: p.id || id('p_') }; cur.push(np); byKey.set(k, np); }
+  planRoster(teamId, sport, players, mode = 'merge') {
+    const cur = clone(this.getRoster(teamId, sport));
+    const show = (v) => String(v ?? '').trim();
+    const keyOf = (p) => `${show(p.number)}|${show(p.name).toLowerCase()}`;
+    const nameOf = (p) => show(p.name).toLowerCase();
+    const next = mode === 'replace' ? [] : cur;
+    const matched = new Set();
+    const added = [], changed = [];
+
+    for (const p of players) {
+      // In a replace each player on the roster can be claimed once; a merge
+      // may refresh the same player from two rows.
+      const open = (c) => c && (mode !== 'replace' || !matched.has(c));
+      const target = mode === 'add'
+        ? cur.find((c) => keyOf(c) === keyOf(p))
+        : [
+          p.id && cur.find((c) => c.id === p.id),
+          cur.find((c) => keyOf(c) === keyOf(p)),
+          // also match on name alone so a jersey change updates rather than duplicates
+          nameOf(p) && cur.find((c) => nameOf(c) === nameOf(p))
+        ].find(open);
+
+      if (!target) {
+        const np = { ...p, id: p.id || id('p_') };
+        next.push(np);
+        added.push(np);
+        continue;
       }
-      next = cur;
+      if (mode === 'add') continue;
+      matched.add(target);
+      const fields = mode === 'replace' ? { ...p }
+        : Object.fromEntries(Object.entries(p).filter(([, v]) => show(v) !== ''));
+      const updated = { ...(mode === 'replace' ? {} : target), ...fields, id: target.id };
+      const diff = {};
+      for (const k of new Set([...Object.keys(target), ...Object.keys(updated)])) {
+        if (k !== 'id' && show(target[k]) !== show(updated[k])) diff[k] = [show(target[k]), show(updated[k])];
+      }
+      if (Object.keys(diff).length) {
+        changed.push({ id: target.id, number: show(updated.number), name: show(updated.name), fields: diff });
+      }
+      if (mode === 'replace') next.push(updated);
+      else Object.assign(target, updated);
     }
+
+    const removed = mode === 'replace' ? cur.filter((c) => !matched.has(c)) : [];
     next.sort((a, b) => {
       const an = parseInt(a.number, 10), bn = parseInt(b.number, 10);
       if (isFinite(an) && isFinite(bn) && an !== bn) return an - bn;
       if (isFinite(an) !== isFinite(bn)) return isFinite(an) ? -1 : 1;
       return String(a.name).localeCompare(String(b.name));
     });
-    team.sports[sport].roster = next;
+    return { roster: next, added, changed, removed };
+  }
+
+  /** Replace, merge or add to a team's roster for one sport (see planRoster). */
+  saveRoster(teamId, sport, players, mode = 'merge') {
+    const team = this.getTeam(teamId);
+    if (!team) throw new Error(`Unknown team: ${teamId}`);
+    const plan = this.planRoster(teamId, sport, players, mode);
+    team.sports[sport] = team.sports[sport] || { roster: [], season: {} };
+    team.sports[sport].roster = plan.roster;
     team.updatedAt = localStamp();
     this._writeJSON(this.teamPath(teamId), team);
     return team;
+  }
+
+  /**
+   * A short fingerprint of a roster as it stands. The roster editor sends back
+   * the one it loaded, so a save can tell when someone else — an import,
+   * another device — changed the roster in the meantime.
+   */
+  rosterVersion(teamId, sport) {
+    return crypto.createHash('sha1').update(JSON.stringify(this.getRoster(teamId, sport))).digest('hex').slice(0, 12);
   }
 
   getRoster(teamId, sport) {

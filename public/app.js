@@ -12,7 +12,12 @@ async function api(path, opts = {}) {
   });
   const ct = res.headers.get('content-type') || '';
   const payload = ct.includes('json') ? await res.json() : await res.text();
-  if (!res.ok) throw new Error(payload?.error || payload || `HTTP ${res.status}`);
+  if (!res.ok) {
+    const e = new Error(payload?.error || payload || `HTTP ${res.status}`);
+    e.status = res.status;
+    e.payload = payload;
+    throw e;
+  }
   return payload;
 }
 
@@ -29,7 +34,8 @@ const S = {
   side: 'home',
   sticky: { home: {}, away: {} },
   statsView: 'team', showArchived: false, editingTeamId: null, rosterDirty: false,
-  sources: {}, suggestedMap: null, importText: '', aux: null,
+  sources: {}, suggestedMap: null, importText: '', importBytes: null, importName: '', aux: null,
+  rosterVersion: null,
   clock: { base: 0, at: 0, running: false, down: true },
   rosterEdit: []
 };
@@ -1376,6 +1382,7 @@ async function selectTeam(id) {
 
 function newTeam() {
   S.rosterEdit = [];
+  S.rosterVersion = null;
   renderRosterTable();
   $('#histbody').innerHTML = '';
   selectTeam('');
@@ -1391,7 +1398,7 @@ async function loadTeamTab() {
   $('#rs-who').textContent = who;
   $('#hist-who').textContent = name ? `— ${name}` : '';
   if (!id) {
-    S.rosterEdit = []; renderRosterTable();
+    S.rosterEdit = []; S.rosterVersion = null; renderRosterTable();
     $('#histbody').innerHTML = '<div class="hint">Pick a team to see its history.</div>';
     return;
   }
@@ -1425,6 +1432,7 @@ async function loadRoster(opts = {}) {
   try {
     const r = await api(`/api/teams/${team}/roster?sport=${$('#rs-sport').value}`);
     S.rosterEdit = r.players.map((p) => ({ ...p }));
+    S.rosterVersion = r.version || null;
     S.rosterDirty = false;
     renderRosterTable();
   } catch (e) { toast(e.message, 'err'); }
@@ -1539,11 +1547,15 @@ async function saveRoster() {
     const before = S.rosterEdit.length;
     const players = S.rosterEdit.filter((p) => String(p.name || '').trim());
     const dropped = before - players.length;
-    const r = await api(`/api/teams/${team}/roster`, {
+    // The version it was loaded at: if the roster has changed since, the
+    // server asks before this save overwrites that.
+    const r = await withRosterConfirm((confirm) => api(`/api/teams/${team}/roster`, {
       method: 'POST',
-      body: JSON.stringify({ sport: $('#rs-sport').value, players, mode: 'replace' })
-    });
+      body: JSON.stringify({ sport: $('#rs-sport').value, players, mode: 'replace', baseVersion: S.rosterVersion, confirm })
+    }), 'Save anyway');
+    if (!r) return toast('Not saved — the roster was left as it is', 'err');
     S.rosterEdit = r.roster.map((p) => ({ ...p }));
+    S.rosterVersion = r.version || null;
     S.rosterDirty = false;
     renderRosterTable();
     if (S.gameId) await refreshState();
@@ -1595,23 +1607,36 @@ function currentTeamId() {
 async function importRoster({ url, csv, preview = false }) {
   const team = currentTeamId(); if (!team) return;
   const out = $('#rs-out');
+  // The import reloads the editor, which would throw away edits not yet saved.
+  if (!preview && S.rosterDirty && !(await ask({
+    title: 'Discard unsaved roster edits?',
+    body: 'The roster above has changes that have not been saved. Importing reloads it from the server, and those edits would be lost.',
+    yes: 'Discard and import', no: 'Keep my edits'
+  }))) return;
   out.textContent = 'Working…';
   try {
-    const r = await api(`/api/teams/${team}/roster/import`, {
+    const mode = $('#rs-replace').checked ? 'replace' : 'merge';
+    const r = await withRosterConfirm((confirm) => api(`/api/teams/${team}/roster/import`, {
       method: 'POST',
-      body: JSON.stringify({
-        sport: $('#rs-sport').value, url, csv, preview,
-        mode: $('#rs-replace').checked ? 'replace' : 'merge'
-      })
-    });
+      body: JSON.stringify({ sport: $('#rs-sport').value, url, csv, preview, mode, confirm })
+    }), mode === 'replace' ? 'Replace the roster' : 'Import and overwrite');
+    if (!r) {
+      out.textContent = 'Cancelled — the roster was not changed.';
+      return;
+    }
     if (r.preview) {
       out.textContent = `PREVIEW — ${r.players.length} players found (nothing saved yet)\n` +
         (r.warnings?.length ? r.warnings.join('\n') + '\n' : '') +
-        r.players.slice(0, 60).map((p) => `${String(p.number).padStart(3)}  ${p.name}  ${p.pos || ''} ${p.year || ''}`).join('\n');
+        r.players.slice(0, 60).map((p) => `${String(p.number).padStart(3)}  ${p.name}  ${p.pos || ''} ${p.year || ''}`).join('\n') +
+        (r.changes ? `\n\n${mode === 'replace' ? 'REPLACING' : 'MERGING'} INTO THE ROSTER:\n${describeRosterChanges(r.changes)}` +
+          (r.changes.changed.length || r.changes.removed.length ? '\n\nImporting will ask you to confirm before anyone on the roster is changed or removed.' : '') : '');
     } else {
       out.textContent = `Imported ${r.imported} players. Roster now has ${r.total}.` +
-        (r.warnings?.length ? '\n' + r.warnings.join('\n') : '');
+        (r.warnings?.length ? '\n' + r.warnings.join('\n') : '') +
+        (r.changes ? `\n\n${describeRosterChanges(r.changes)}` : '');
       S.rosterEdit = r.roster.map((p) => ({ ...p }));
+      S.rosterVersion = r.version || null;
+      S.rosterDirty = false;
       renderRosterTable();
       if (S.gameId) await refreshState();
       toast('Roster imported', 'ok');
@@ -1619,11 +1644,50 @@ async function importRoster({ url, csv, preview = false }) {
   } catch (e) { out.textContent = 'Error: ' + e.message; toast(e.message, 'err'); }
 }
 
+/** A roster save's effect on players already on it, as plain text. */
+function describeRosterChanges(ch, max = 12) {
+  const who = (p) => `#${p.number || '?'} ${p.name || '(no name)'}`;
+  const list = (items, fmt) => {
+    const lines = items.slice(0, max).map((x) => '   ' + fmt(x));
+    if (items.length > max) lines.push(`   … and ${items.length - max} more`);
+    return lines;
+  };
+  const lines = [];
+  if (ch.changed?.length) {
+    lines.push(`Changes ${ch.changed.length} player${ch.changed.length === 1 ? '' : 's'} already on the roster:`,
+      ...list(ch.changed, (c) => `${who(c)}: ` + Object.entries(c.fields)
+        .map(([k, [a, b]]) => `${k} ${a || '(blank)'} → ${b || '(blank)'}`).join(', ')));
+  }
+  if (ch.removed?.length) {
+    lines.push(`Removes ${ch.removed.length} player${ch.removed.length === 1 ? '' : 's'}:`, ...list(ch.removed, who));
+  }
+  if (ch.added?.length) lines.push(`Adds ${ch.added.length} new player${ch.added.length === 1 ? '' : 's'}.`);
+  return lines.length ? lines.join('\n') : 'No change to the roster.';
+}
+
+/**
+ * Make a roster write; if the server answers that it would change or remove
+ * players already on the roster, show exactly who and how, and send it again
+ * only on a yes. Resolves null when the operator says no.
+ */
+async function withRosterConfirm(send, yes) {
+  try { return await send(false); }
+  catch (e) {
+    if (!e.payload?.needsConfirm) throw e;
+    const ok = await ask({
+      title: 'Overwrite players on the roster?',
+      body: `${e.message}\n\n${describeRosterChanges(e.payload.changes)}`,
+      yes, no: 'Cancel'
+    });
+    return ok ? send(true) : null;
+  }
+}
+
 /** Client-side format sniff, purely so the operator sees what they picked. */
 function sniff(text) {
   const s = String(text || '');
   if (!s.trim()) return '';
-  if (s.slice(0, 8).startsWith('%PDF-')) return 'PDF — not importable, see note below';
+  if (s.slice(0, 8).startsWith('%PDF-')) return 'PDF — imports if it is a HUDL season report; other PDFs are refused';
   const first = s.split(/\r?\n/, 1)[0] || '';
   if (first.includes('Jersey') && first.includes('|')) return 'HUDL per-game export';
   if (/<table/i.test(s)) return /(Passing|Rushing|Receiving)\s*Stats/i.test(s) ? 'HUDL season page' : 'HTML table';
@@ -1635,11 +1699,31 @@ function showDetectedFormat(text) {
   $('#rs-detect').textContent = k ? `Detected: ${k}` : '';
 }
 
+const toBase64 = (blob) => new Promise((resolve, reject) => {
+  const r = new FileReader();
+  r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ''));
+  r.onerror = () => reject(r.error);
+  r.readAsDataURL(blob);
+});
+
 async function loadImportFile(e) {
   const f = e.target.files?.[0];
   if (!f) return;
   const out = $('#rs-out');
   try {
+    S.importName = f.name;
+    S.importText = '';
+    S.importBytes = null;
+    // A PDF is binary, and reading it as text would damage it, so it goes to
+    // the server as base64 instead.
+    const head = new Uint8Array(await f.slice(0, 5).arrayBuffer());
+    if (String.fromCharCode(...head) === '%PDF-') {
+      S.importBytes = await toBase64(f);
+      showDetectedFormat('%PDF-');
+      $('#rs-paste').value = `[${f.name} — PDF, ${Math.ceil(f.size / 1024)} KB loaded]`;
+      out.textContent = `Loaded ${f.name} (PDF, ${f.size.toLocaleString()} bytes).\nDetected: ${sniff('%PDF-')}\n\nUse "Preview Stats" to check it before importing.`;
+      return;
+    }
     const text = await f.text();
     S.importText = text;
     showDetectedFormat(text);
@@ -1651,28 +1735,69 @@ async function loadImportFile(e) {
   } catch (err) { out.textContent = 'Could not read that file: ' + err.message; }
 }
 
-function importPayloadText() {
+/** What to send: the loaded file, or whatever is in the box. Null if neither. */
+function importPayload() {
   const pasted = $('#rs-paste').value;
-  return (S.importText && pasted.startsWith('[')) ? S.importText : (pasted || S.importText || '');
+  const placeholder = pasted.startsWith('[');
+  if (S.importBytes && placeholder) return { base64: S.importBytes, source: S.importName };
+  if (S.importText && placeholder) return { csv: S.importText, source: S.importName };
+  if (pasted.trim()) return { csv: pasted, source: pasted === S.importText ? S.importName : 'pasted text' };
+  return null;
+}
+
+const fmtRaw = (v) => (v == null ? '–' : typeof v === 'number' ? String(+v.toFixed(2)) : String(v));
+
+/** The team-and-opponent block a HUDL season PDF carries, as text lines. */
+function teamTotalsLines(t) {
+  const lines = ['', `Season totals${t.games != null ? ` — ${t.games} of ${t.scheduled ?? '?'} games` : ''}:`];
+  const keys = [...new Set([...Object.keys(t.stats || {}), ...Object.keys(t.opponents?.stats || {})])];
+  lines.push(`   ${''.padEnd(14)} ${String(t.abbrev || 'TEAM').padStart(8)} ${String(t.opponents?.abbrev || 'OPP').padStart(8)}`);
+  for (const k of keys) {
+    lines.push(`   ${k.padEnd(14)} ${fmtRaw(t.stats?.[k]).padStart(8)} ${fmtRaw(t.opponents?.stats?.[k]).padStart(8)}`);
+  }
+  return lines;
+}
+
+/** What an overwrite changes (or changed), for the preview and the result. */
+function changeLines(rep, ch, preview) {
+  if (!rep) return ['', preview ? 'Nothing imported for this season yet — this will be the first set.' : 'First stats import for this season.'];
+  const n = (a) => a?.length || 0;
+  const was = `the set imported ${rep.importedAt} (${rep.label}, ${rep.players} players${rep.games != null ? `, ${rep.games} games` : ''})`;
+  if (!n(ch.changed) && !n(ch.added) && !n(ch.removed) && !ch.team) {
+    return ['', `Identical to ${was} — no numbers change.`];
+  }
+  const lines = ['', `${preview ? 'WILL REPLACE' : 'REPLACED'} ${was}:`,
+    `   ${n(ch.changed)} changed · ${n(ch.added)} added · ${n(ch.removed)} removed · ${ch.unchanged} unchanged`];
+  const stat = ([k, [a, b]]) => `${k} ${fmtRaw(a)}→${fmtRaw(b)}`;
+  for (const c of (ch.changed || []).slice(0, 15)) {
+    lines.push(`   #${String(c.number).padEnd(3)} ${c.name.padEnd(18)} ${Object.entries(c.stats).map(stat).join(', ')}`);
+  }
+  if (n(ch.changed) > 15) lines.push(`   … and ${n(ch.changed) - 15} more`);
+  for (const p of ch.added || []) lines.push(`   + #${p.number} ${p.name}`);
+  for (const p of ch.removed || []) lines.push(`   − #${p.number} ${p.name}`);
+  if (ch.team) lines.push(`   totals: ${Object.entries(ch.team).map(stat).join(', ')}`);
+  lines.push(preview ? '   The old numbers are kept in the import log.' : '   The old numbers are kept in the import log below Season History.');
+  return lines;
 }
 
 async function importStats(preview = false) {
   const team = currentTeamId(); if (!team) return;
   const out = $('#rs-out');
-  const text = importPayloadText();
-  if (!text.trim()) return toast('Paste or choose a file first', 'err');
+  const payload = importPayload();
+  if (!payload) return toast('Paste or choose a file first', 'err');
   out.textContent = preview ? 'Previewing…' : 'Importing…';
   try {
     const r = await api(`/api/teams/${team}/stats/import`, {
       method: 'POST',
       body: JSON.stringify({
-        sport: $('#rs-sport').value, csv: text,
+        sport: $('#rs-sport').value, ...payload,
         season: $('#ex-season').value || S.cfg.season, preview
       })
     });
     const lines = [];
-    lines.push(`${preview ? 'PREVIEW — nothing saved yet' : 'IMPORTED'}   (format: ${r.kind || 'csv'})`);
+    lines.push(`${preview ? 'PREVIEW — nothing saved yet' : 'IMPORTED'}   (format: ${r.kind || 'csv'}, season ${r.season})`);
     lines.push(`${r.players?.length ?? r.imported} players`);
+    if (r.team) lines.push(...teamTotalsLines(r.team));
     if (r.sections?.length) {
       lines.push('', 'Sections found:');
       for (const s of r.sections) lines.push(`   ${s.key.padEnd(16)} ${s.players} players`);
@@ -1682,6 +1807,11 @@ async function importStats(preview = false) {
     }
     const cols = r.matched || r.matchedColumns || [];
     if (cols.length) lines.push('', `Stat columns read: ${cols.join(', ')}`);
+    if (r.changes) lines.push(...changeLines(preview ? r.replaces : r.replaced, r.changes, preview));
+    if (preview && r.rosterAdds) lines.push('', `${r.rosterAdds} player(s) not on the roster will be added to it.`);
+    if (!preview && r.rosterAdded?.length) {
+      lines.push('', `Added to the roster: ${r.rosterAdded.map((p) => `#${p.number} ${p.name}`).join(', ')}`);
+    }
     if (preview && r.players) {
       lines.push('', 'Sample:');
       for (const p of r.players.slice(0, 15)) {
@@ -1692,7 +1822,16 @@ async function importStats(preview = false) {
     }
     if (r.warnings?.length) lines.push('', 'NOTES:', ...r.warnings.map((w) => '  • ' + w));
     out.textContent = lines.join('\n');
-    if (!preview) toast('Stats imported', 'ok');
+    if (!preview) {
+      toast(r.replaced ? 'Stats imported — earlier set replaced and logged' : 'Stats imported', 'ok');
+      // Reloading would throw away roster edits that have not been saved yet.
+      if (r.rosterAdded?.length && !S.rosterDirty) await loadRoster();
+      else if (r.rosterAdded?.length) {
+        out.textContent += '\n\nYou have unsaved roster edits, so the roster above was not reloaded. ' +
+          'Saving it will ask before it drops the players just added.';
+      }
+      await loadHistory({ quiet: true });
+    }
   } catch (e) { out.textContent = 'Error: ' + e.message; toast(e.message, 'err'); }
 }
 
@@ -1703,24 +1842,30 @@ async function loadHistory(opts = {}) {
   const body = $('#histbody');
   body.innerHTML = 'Loading…';
   try {
-    const r = await api(`/api/teams/${team}/history?sport=${$('#rs-sport').value}`);
-    if (!r.seasons.length) {
-      body.innerHTML = `<div class="hint">No committed games yet for ${esc(r.teamName)} in ${esc(r.sport)}. ` +
-        `Games appear here once you hit "Mark Final &amp; Commit to Season" on the Export tab.</div>`;
-      return;
-    }
+    const sport = $('#rs-sport').value;
+    const [r, log] = await Promise.all([
+      api(`/api/teams/${team}/history?sport=${sport}`),
+      api(`/api/teams/${team}/imports?sport=${sport}`).catch(() => ({ entries: [] }))
+    ]);
     let h = '';
+    if (!r.seasons.length) {
+      h += `<div class="hint">No committed games yet for ${esc(r.teamName)} in ${esc(r.sport)}. ` +
+        `Games appear here once you hit "Mark Final &amp; Commit to Season" on the Export tab.</div>`;
+    }
     for (const s of r.seasons) {
       h += `<div class="tbltitle">${esc(s.season)} — ${s.gameCount} game${s.gameCount === 1 ? '' : 's'}</div>`;
-      h += '<div class="tblwrap"><table class="tbl"><thead><tr><th>Date</th><th>Opponent</th><th>H/A</th><th>Result</th><th>Players</th><th></th></tr></thead><tbody>';
-      for (const g of s.games) {
-        const t = g.teamStats || {};
-        const line = t.score != null ? `${t.score} pts` : '';
-        h += `<tr><td>${esc(g.date)}</td><td>${esc(g.opponent)}</td><td>${esc(g.homeAway)}</td>
-          <td>${esc(line)}</td><td>${g.playerCount}</td>
-          <td>${g.exists ? `<a href="/api/games/${encodeURIComponent(g.gameId)}/export/report.pdf" target="_blank" rel="noopener">PDF</a>` : '<span style="color:var(--dim)">archived</span>'}</td></tr>`;
+      if (!s.gameCount) h += '<div class="hint">No games logged here this season.</div>';
+      else {
+        h += '<div class="tblwrap"><table class="tbl"><thead><tr><th>Date</th><th>Opponent</th><th>H/A</th><th>Result</th><th>Players</th><th></th></tr></thead><tbody>';
+        for (const g of s.games) {
+          const t = g.teamStats || {};
+          const line = t.score != null ? `${t.score} pts` : '';
+          h += `<tr><td>${esc(g.date)}</td><td>${esc(g.opponent)}</td><td>${esc(g.homeAway)}</td>
+            <td>${esc(line)}</td><td>${g.playerCount}</td>
+            <td>${g.exists ? `<a href="/api/games/${encodeURIComponent(g.gameId)}/export/report.pdf" target="_blank" rel="noopener">PDF</a>` : '<span style="color:var(--dim)">archived</span>'}</td></tr>`;
+        }
+        h += '</tbody></table></div>';
       }
-      h += '</tbody></table></div>';
 
       if (s.players.length) {
         const keys = Object.keys(s.players[0]).filter((k) =>
@@ -1735,13 +1880,80 @@ async function loadHistory(opts = {}) {
         }
         h += '</tbody></table></div>';
       }
-      if (s.imported) {
-        h += `<div class="hint">Also holds an imported set (${esc(s.imported.label)}, ${s.imported.playerCount} players, ` +
-          `loaded ${esc(s.imported.importedAt)}) with columns: ${esc((s.imported.matchedColumns || []).join(', '))}.</div>`;
-      }
+      if (s.imported) h += importedSetHTML(s.season, s.imported);
     }
+    h += importLogHTML(log.entries);
     body.innerHTML = h;
   } catch (e) { body.innerHTML = `<div class="hint">Error: ${esc(e.message)}</div>`; }
+}
+
+/** An imported season set, laid out section by section the way the file had it. */
+function importedSetHTML(season, imp) {
+  const games = imp.team?.games != null ? ` · ${imp.team.games} of ${imp.team.scheduled ?? '?'} games` : '';
+  let h = `<details class="fold"><summary>${esc(season)} imported season stats — ${esc(imp.label)} · ` +
+    `${imp.playerCount} players${games} · loaded ${esc(imp.importedAt)}</summary><div class="foldbody">`;
+  const t = imp.team;
+  const teamKeys = t ? [...new Set([...Object.keys(t.stats || {}), ...Object.keys(t.opponents?.stats || {})])] : [];
+  if (teamKeys.length) {
+    h += '<div class="tbltitle">Season totals</div><div class="tblwrap"><table class="tbl"><thead><tr>' +
+      `<th>Stat</th><th>${esc(t.abbrev || 'Team')}</th><th>${esc(t.opponents?.abbrev || 'Opp')}</th></tr></thead><tbody>`;
+    for (const k of teamKeys) {
+      h += `<tr><td>${esc(k)}</td><td>${esc(fmtRaw(t.stats?.[k]))}</td><td>${esc(fmtRaw(t.opponents?.stats?.[k]))}</td></tr>`;
+    }
+    h += '</tbody></table></div>';
+  }
+  // Sets imported before sections were recorded fall back to one wide table.
+  const sections = imp.sections?.length ? imp.sections
+    : [{ key: null, label: 'Stats', cols: (imp.matchedColumns || []).map((k) => [k, k]) }];
+  const byKey = new Map((imp.players || []).map((p) => [`${p.number}|${String(p.name).toLowerCase()}`, p]));
+  for (const sec of sections) {
+    const players = sec.order ? sec.order.map((k) => byKey.get(k)).filter(Boolean)
+      : (imp.players || []).filter((p) => !sec.key || (p.sections || []).includes(sec.key));
+    const cols = (sec.cols || []).filter(([k]) => players.some((p) => p.stats?.[k] != null));
+    if (!players.length || !cols.length) continue;
+    h += `<div class="tbltitle">${esc(sec.label)}</div><div class="tblwrap"><table class="tbl"><thead><tr><th>#</th><th>Player</th>` +
+      cols.map(([, label]) => `<th>${esc(label)}</th>`).join('') + '</tr></thead><tbody>';
+    for (const p of players) {
+      h += `<tr><td>${esc(p.number)}</td><td>${esc(p.name)}</td>` +
+        cols.map(([k]) => `<td>${esc(fmtv(p.stats?.[k]))}</td>`).join('') + '</tr>';
+    }
+    h += '</tbody></table></div>';
+  }
+  return h + '</div></details>';
+}
+
+/** Every stats import for this team, newest first, with what each overwrite changed. */
+function importLogHTML(entries) {
+  if (!entries?.length) return '';
+  const n = (a) => a?.length || 0;
+  const stat = ([k, [a, b]]) => `${k} ${fmtRaw(a)}→${fmtRaw(b)}`;
+  let h = `<details class="fold"><summary>Import log — ${entries.length} stats import${entries.length === 1 ? '' : 's'}</summary>` +
+    '<div class="foldbody"><p class="hint">Every stats import for this team. When one replaced an earlier set, it lists what changed. ' +
+    'The full record, old values included, is <code>imports.jsonl</code> in the data folder.</p>' +
+    '<div class="tblwrap"><table class="tbl"><thead><tr><th>When</th><th>Season</th><th>What</th><th>File</th><th>Players</th><th>Changes</th></tr></thead><tbody>';
+  for (const e of entries) {
+    const c = e.changes || {};
+    const games = e.games != null ? `, ${e.games} of ${e.scheduled ?? '?'} games` : '';
+    let changes = '';
+    if (e.action === 'overwrite') {
+      const detail = [
+        ...(c.changed || []).map((p) => `#${p.number} ${p.name}: ${Object.entries(p.stats).map(stat).join(', ')}`),
+        ...(c.added || []).map((p) => `+ #${p.number} ${p.name}`),
+        ...(c.removed || []).map((p) => `− #${p.number} ${p.name}`),
+        ...(c.team ? [`totals: ${Object.entries(c.team).map(stat).join(', ')}`] : [])
+      ];
+      const head = `${n(c.changed)} changed · ${n(c.added)} added · ${n(c.removed)} removed` +
+        (e.replaced ? ` — replaced ${e.replaced.label} (${e.replaced.importedAt})` : '');
+      changes = detail.length
+        ? `<details><summary>${esc(head)}</summary><div class="hint">${detail.map(esc).join('<br>')}</div></details>`
+        : esc(`${head} — no numbers changed`);
+    }
+    if (n(e.rosterAdded)) changes += `<div class="hint">Roster +${n(e.rosterAdded)}: ${esc(e.rosterAdded.map((p) => `#${p.number} ${p.name}`).join(', '))}</div>`;
+    h += `<tr><td>${esc(e.tsLocal)}</td><td>${esc(e.season)}</td><td>${e.action === 'overwrite' ? 'Overwrite' : 'Import'}</td>` +
+      `<td>${esc(e.label)}${e.kind ? ` <span class="subtle">${esc(e.kind)}</span>` : ''}</td><td>${e.players}${esc(games)}</td>` +
+      `<td style="white-space:normal;text-align:left">${changes}</td></tr>`;
+  }
+  return h + '</tbody></table></div></div></details>';
 }
 
 /* ---------------------------- scorebot ---------------------------- */

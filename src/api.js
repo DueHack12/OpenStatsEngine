@@ -7,7 +7,7 @@ import { clockFromEvents, clockNow } from './clock.js';
 import { XML_VIEWS, writeXmlFiles } from './vmix.js';
 import { boxScoreCSV, teamStatsCSV, playByPlayCSV, scoringCSV, seasonCSV, rosterCSV } from './exports/csv.js';
 import { gameReportPDF } from './exports/report.js';
-import { parseRosterCSV, importRosterFromURL, importStatsAuto } from './importers/index.js';
+import { parseRosterCSV, importRosterFromURL, importStatsAuto, compareImports, rosterNewcomers } from './importers/index.js';
 import { importTeamsFromSheet } from './importers/sheets.js';
 import { localStamp } from './util.js';
 import { FEED_FIELDS } from './integrations/scorebot.js';
@@ -17,6 +17,28 @@ import { resolveDataDir, inspectDataDir, chooseDataDir, readSettings, settingsPa
 
 const raw = (body, type, filename, status = 200) => ({ __raw: true, body, type, filename, status });
 const bad = (msg, status = 400) => { const e = new Error(msg); e.status = status; throw e; };
+
+/** What a roster save would do to players already on it, for the operator to read. */
+const rosterChanges = (plan) => ({
+  added: plan.added.map((p) => ({ number: p.number ?? '', name: p.name ?? '' })),
+  changed: plan.changed,
+  removed: plan.removed.map((p) => ({ number: p.number ?? '', name: p.name ?? '' }))
+});
+
+/**
+ * Refuse a roster write that would change or remove players already on the
+ * roster until the operator has seen exactly what and said yes. The 409 carries
+ * the changes; sending the same request again with `confirm: true` goes ahead.
+ */
+function confirmRoster(plan, confirm, why) {
+  if (confirm || (!plan.changed.length && !plan.removed.length)) return;
+  const n = (k) => plan[k].length;
+  const parts = [n('changed') && `change ${n('changed')}`, n('removed') && `remove ${n('removed')}`].filter(Boolean);
+  const e = new Error(`${why} would ${parts.join(' and ')} of the players already on the roster.`);
+  e.status = 409;
+  e.details = { needsConfirm: true, changes: rosterChanges(plan) };
+  throw e;
+}
 
 /** Every non-loopback IPv4 address, so the monitor can show where it lives. */
 function localAddresses() {
@@ -165,7 +187,10 @@ export function registerRoutes(route, ctx) {
   route('GET', '/api/teams', () => store.listTeams());
   route('POST', '/api/teams', ({ body }) => {
     if (!body?.name) bad('Team name is required');
-    return store.saveTeam(body);
+    // Rosters only change through the roster routes, which ask before they
+    // overwrite anyone; a team profile save must not carry them along.
+    const { sports, ...profile } = body;
+    return store.saveTeam(profile);
   });
   /**
    * Bulk-create every team from a shared Google Sheet (Validation tab for the
@@ -212,15 +237,34 @@ export function registerRoutes(route, ctx) {
   route('GET', '/api/teams/:id/roster', ({ params, query }) => ({
     teamId: params.id,
     sport: query.sport,
-    players: store.getRoster(params.id, query.sport || bad('sport query param required'))
+    players: store.getRoster(params.id, query.sport || bad('sport query param required')),
+    version: store.rosterVersion(params.id, query.sport)
   }));
 
+  /**
+   * Save a roster. The editor sends the whole roster (`mode: 'replace'`) and
+   * the `baseVersion` it loaded: its own edits need no further question, but
+   * if the roster changed underneath it — an import, another device — the save
+   * would undo that, so it is refused until confirmed. Without a baseVersion,
+   * any change to a player already on the roster needs `confirm: true`.
+   */
   route('POST', '/api/teams/:id/roster', ({ params, body }) => {
-    const { sport, players, mode } = body || {};
+    const { sport, players, mode, baseVersion = null, confirm = false } = body || {};
     if (!sport) bad('sport is required');
     if (!Array.isArray(players)) bad('players array is required');
-    const team = store.saveRoster(params.id, sport, players, mode || 'merge');
-    return { ok: true, count: team.sports[sport].roster.length, roster: team.sports[sport].roster };
+    if (mode && !['merge', 'replace', 'add'].includes(mode)) bad('mode must be merge, replace or add');
+    store.getTeam(params.id) || bad('Unknown team', 404);
+    const m = mode || 'merge';
+    const plan = store.planRoster(params.id, sport, players, m);
+    if (!baseVersion) confirmRoster(plan, confirm, 'Saving this roster');
+    else if (baseVersion !== store.rosterVersion(params.id, sport)) {
+      confirmRoster(plan, confirm, 'The roster was changed somewhere else since you opened it. Saving now');
+    }
+    const team = store.saveRoster(params.id, sport, players, m);
+    return {
+      ok: true, count: team.sports[sport].roster.length, roster: team.sports[sport].roster,
+      version: store.rosterVersion(params.id, sport)
+    };
   });
 
   /**
@@ -228,56 +272,116 @@ export function registerRoutes(route, ctx) {
    * `preview: true` parses without saving so the operator can eyeball it first.
    */
   route('POST', '/api/teams/:id/roster/import', async ({ params, body }) => {
-    const { sport, url, csv, mode = 'merge', preview = false } = body || {};
+    const { sport, url, csv, mode = 'merge', preview = false, confirm = false } = body || {};
     if (!sport) bad('sport is required');
+    if (!['merge', 'replace'].includes(mode)) bad('mode must be merge or replace');
+    store.getTeam(params.id) || bad('Unknown team', 404);
     let result;
     if (url) result = await importRosterFromURL(url);
     else if (csv) result = { ...parseRosterCSV(csv), source: 'pasted CSV', kind: 'csv' };
     else bad('Provide either a url or csv body field');
 
     if (!result.players.length) bad(`No players found. ${result.warnings.join(' ')}`);
-    if (preview) return { preview: true, ...result };
+    // An import that only adds players goes straight in. One that would change
+    // or remove a player already on the roster — and with them the names on
+    // plays already logged — waits for a yes.
+    const plan = store.planRoster(params.id, sport, result.players, mode);
+    if (preview) return { preview: true, ...result, changes: rosterChanges(plan) };
+    confirmRoster(plan, confirm, mode === 'replace' ? 'Replacing the roster with this import' : 'This import');
 
     const team = store.saveRoster(params.id, sport, result.players, mode);
     return {
       ok: true, imported: result.players.length,
       total: team.sports[sport].roster.length,
       warnings: result.warnings, source: result.source,
-      roster: team.sports[sport].roster
+      changes: rosterChanges(plan),
+      roster: team.sports[sport].roster,
+      version: store.rosterVersion(params.id, sport)
     };
   });
 
   /**
-   * Stat import for HUDL (per-game pipe export or saved season page), MaxPreps
-   * CSV/HTML, or any spreadsheet. Format is detected automatically.
+   * Stat import for HUDL (per-game pipe export, saved season page, or the
+   * season report as a PDF), MaxPreps CSV/HTML, or any spreadsheet. Format is
+   * detected automatically. A file that is not text (a PDF) comes as `base64`
+   * instead of `csv`.
+   *
+   * An import replaces the team's imported set for that season. Every import
+   * is written to the import log — and when it replaces an earlier set, the
+   * entry records what changed, player by player, with the old values.
+   * `preview: true` reports the same comparison without saving anything.
    */
   route('POST', '/api/teams/:id/stats/import', ({ params, body }) => {
-    const { sport, season, csv, label = 'import', category = null, merge = true, preview = false } = body || {};
-    if (!sport || !csv) bad('sport and csv (the file contents) are required');
+    const { sport, season, csv, base64, source = '', label = '', category = null, merge = true, preview = false } = body || {};
+    if (!sport || (!csv && !base64)) bad('sport and csv (the file contents) are required');
+    const team = store.getTeam(params.id) || bad('Unknown team', 404);
     // HUDL per-game files hold both teams and identify players only by jersey,
     // so hand the importer this team's numbers to split them apart.
-    const rosterNums = store.getRoster(params.id, sport).map((p) => p.number).filter(Boolean);
-    const result = importStatsAuto(csv, sport, {
+    const roster = store.getRoster(params.id, sport);
+    const rosterNums = roster.map((p) => p.number).filter(Boolean);
+    const result = importStatsAuto(base64 ? Buffer.from(String(base64), 'base64') : csv, sport, {
       category, merge, rosterNums: rosterNums.length ? rosterNums : null
     });
     if (!result.players.length) bad(`No player rows found. ${(result.warnings || []).join(' ')}`);
-    if (preview) return { preview: true, ...result };
 
-    const team = store.getTeam(params.id) || bad('Unknown team', 404);
     const s = season || store.config.season;
-    team.sports[sport] = team.sports[sport] || { roster: [], season: {} };
-    team.sports[sport].season[s] = team.sports[sport].season[s] || { games: {} };
-    team.sports[sport].season[s].imported = {
-      label, importedAt: localStamp(),
+    const set = {
+      label: String(label || source || result.kind || 'import').slice(0, 120),
+      source: String(source).slice(0, 200),
+      kind: result.kind || 'csv',
+      importedAt: localStamp(),
       matchedColumns: result.matched,
+      sections: result.sections || null,
+      team: result.team || null,
       players: result.players
     };
-    store.saveTeam(team);
-    // names from the import also seed the roster, which is usually what you want
-    // for an opponent you have never played before
-    store.saveRoster(params.id, sport,
-      result.players.map((p) => ({ number: p.number, name: p.name, pos: p.pos, year: p.year })), 'merge');
-    return { ok: true, imported: result.players.length, matchedColumns: result.matched, warnings: result.warnings };
+    const current = store.getImportedStats(params.id, sport, s);
+    const changes = compareImports(current, set);
+    const replaces = current ? {
+      label: current.label, kind: current.kind || null, importedAt: current.importedAt,
+      players: (current.players || []).length, games: current.team?.games ?? null
+    } : null;
+    const warnings = [...(result.warnings || [])];
+    // A file covering fewer games than the set it replaces is usually an old
+    // export picked by mistake, and importing it would roll the season back.
+    if (replaces?.games != null && set.team?.games != null && set.team.games < replaces.games) {
+      warnings.unshift(`This file covers ${set.team.games} game(s); the set it replaces covers ${replaces.games}. ` +
+        'Check you picked the latest export.');
+    }
+    const newcomers = rosterNewcomers(roster, result.players);
+
+    if (preview) {
+      return { preview: true, ...result, warnings, season: s, replaces, changes, rosterAdds: newcomers.length };
+    }
+
+    store.saveImportedStats(params.id, sport, s, set);
+    // Names from the import also seed the roster, which is usually what you
+    // want for an opponent you have never played before. Only players the
+    // roster lacks are added, in 'add' mode, which cannot touch an existing
+    // entry — so a stats import never needs to ask about the roster.
+    if (newcomers.length) store.saveRoster(params.id, sport, newcomers, 'add');
+    const entry = store.logImport({
+      action: current ? 'overwrite' : 'import',
+      teamId: team.id, teamName: team.name, sport, season: s,
+      label: set.label, source: set.source, kind: set.kind,
+      players: set.players.length, matchedColumns: set.matchedColumns,
+      games: set.team?.games ?? null, scheduled: set.team?.scheduled ?? null,
+      replaced: replaces, changes,
+      rosterAdded: newcomers.map((p) => ({ number: p.number, name: p.name })),
+      warnings
+    });
+    return {
+      ok: true, imported: result.players.length, kind: set.kind, season: s,
+      matchedColumns: result.matched, warnings, sections: result.sections || null, team: set.team,
+      replaced: replaces, changes, rosterAdded: entry.rosterAdded, logId: entry.id
+    };
+  });
+
+  /** The import log for one team, newest first. `sport` narrows it. */
+  route('GET', '/api/teams/:id/imports', ({ params, query }) => {
+    store.getTeam(params.id) || bad('Unknown team', 404);
+    const entries = store.readImportLog({ teamId: params.id, sport: query.sport || null }).reverse();
+    return { teamId: params.id, entries };
   });
 
   /* ---------------- games ---------------- */
@@ -599,8 +703,11 @@ export function registerRoutes(route, ctx) {
         players: [...totals.values()].sort((a, b2) => (parseInt(a.number, 10) || 999) - (parseInt(b2.number, 10) || 999)),
         imported: b.imported ? {
           label: b.imported.label, importedAt: b.imported.importedAt,
+          kind: b.imported.kind || null, source: b.imported.source || '',
           playerCount: b.imported.players.length,
           matchedColumns: b.imported.matchedColumns,
+          sections: b.imported.sections || null,
+          team: b.imported.team || null,
           players: b.imported.players
         } : null,
         updatedAt: b.updatedAt

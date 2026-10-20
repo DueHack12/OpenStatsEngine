@@ -67,7 +67,7 @@ jobs:
         run: |
           node test/engine.test.js && node test/v2.test.js && node test/v3.test.js \
             && node test/v4.test.js && node test/v5.test.js && node test/v6.test.js \
-            && node test/v7.test.js && node test/mqtt.test.js && node test/announcer.test.js \
+            && node test/v7.test.js && node test/v8.test.js && node test/mqtt.test.js && node test/announcer.test.js \
             && node test/backup.test.js && node test/update.test.js && node test/datadir.test.js && node test/real-data.test.js
 
       - name: Package

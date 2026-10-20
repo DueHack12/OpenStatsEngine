@@ -318,9 +318,9 @@
 
         <div class="impway">
           <h4>From a file, or pasted text</h4>
-          <p class="hint">HUDL per-game export, a saved HUDL season page, a MaxPreps CSV, or any spreadsheet. The format is detected for you.</p>
+          <p class="hint">HUDL per-game export, a saved HUDL season page or season-stats PDF, a MaxPreps CSV, or any spreadsheet. The format is detected for you.</p>
           <div class="row">
-            <input type="file" id="rs-file" accept=".csv,.tsv,.txt,.html,.htm,.xml">
+            <input type="file" id="rs-file" accept=".csv,.tsv,.txt,.html,.htm,.xml,.pdf">
             <span id="rs-detect" class="hint" style="margin:0"></span>
           </div>
           <textarea id="rs-paste" rows="4" placeholder="Number,Name,Position,Grade&#10;12,John Smith,QB,11"></textarea>
@@ -331,7 +331,7 @@
           <div class="row">
             <button id="rs-stats-preview">Preview Stats</button>
             <button id="rs-stats-import">Import as Stats</button>
-            <span class="hint" style="margin:0">Adds game numbers to this team's season totals rather than its roster.</span>
+            <span class="hint" style="margin:0">Stores the file's numbers as this team's imported season stats, replacing any set already imported for the season. Every import is logged under Season History.</span>
           </div>
         </div>
 
@@ -348,7 +348,7 @@
         <button id="hist-csv">Download Season CSV</button>
       </div>
     </div>
-    <p class="hint">Every game logged against this team. Pull up what they did to you in September before you play them again in November.</p>
+    <p class="hint">Every game logged against this team, plus any season stats imported for them and a log of those imports. Pull up what they did to you in September before you play them again in November.</p>
     <div id="histbody"></div>
   </div>
 

@@ -295,8 +295,9 @@ It tells you what state it is in rather than leaving you to guess:
 Editing a team's **name** now edits that team. It used to save a second team
 under a new id and leave the original behind.
 
-Season stats from a HUDL/MaxPreps export can be brought in with **Import Season
-Stats CSV** — useful for having opponent numbers ready before kickoff. Ambiguous
+Season stats from a HUDL/MaxPreps export — including HUDL's season-stats PDF —
+can be brought in with **Import as Stats** — useful for having opponent numbers
+ready before kickoff. Ambiguous
 columns (a bare `TD` could be passing, rushing or receiving) are resolved to the
 sport's leading category and the choice is reported back to you.
 
@@ -863,6 +864,35 @@ rows are skipped.
 Kickoff-return and punt-return tables have identical column headers, so they are
 told apart by the heading above each table — don't reorder the page.
 
+### HUDL season-stats PDF
+
+HUDL's **Season Stats & Team Leaders** report, downloaded as a PDF
+(`hudl-season_stats_….pdf`), imports directly — choose the file and **Preview
+Stats**. You get the same eight sections as the saved page, plus what the page
+does not have: the team's and its opponents' season totals from the top of the
+report (total yards, passing and rushing lines, 3rd/4th-down conversions, first
+downs, turnovers, sacks) and how many games the report covers ("5 out of 10
+games").
+
+Why this PDF is safe to read when MaxPreps PDFs are not:
+
+- **Every value is placed by where it sits on the page**, under the heading it
+  is drawn beneath, never by counting cells. A blank cell — a `Total:` row with
+  no long, a `Rest of team` row with no jersey — stays blank instead of shifting
+  the rest of the row left.
+- **Every section is checked against HUDL's own `Total:` row.** Each player row
+  (plus `Rest of team`) is added up and compared; if anything disagrees, the
+  import says which section and which stat, so a value read into the wrong
+  column cannot slip through quietly.
+- A table that runs over a page break repeats its header on the next page; that
+  is read as the same table continuing, not as a new one.
+- Return TDs from the kickoff- and punt-return tables, and fumbles from the
+  rushing and receiving tables, are added together; games played is the most of
+  any table.
+
+The team leaders block to the right of the totals is not imported — it repeats
+numbers that are already in the tables.
+
 ### MaxPreps
 
 Use the **CSV / Excel export**, or copy the stats table off the web page and
@@ -872,7 +902,32 @@ paste it in. Both import cleanly.
 entirely, so a player with no passing stats has nine values in a thirteen-column
 table and the remaining numbers no longer line up with their headings. Parsing it
 would put confidently wrong numbers on your graphics, so the importer stops and
-tells you to use the CSV instead.
+tells you to use the CSV instead. HUDL's season-stats PDF is the one PDF that
+imports, for the reasons above; any other PDF is refused the same way.
+
+### Re-importing, and the import log
+
+Each team keeps **one imported set per sport and season**. Importing again — next
+week's HUDL report, say — replaces it. Nothing is lost when that happens:
+
+- **Preview Stats** says what an import would replace before you commit: the
+  earlier set's file and date, and which players' numbers change, old → new,
+  who is new and who has dropped off. If the new file covers *fewer* games than
+  the set it replaces, it warns you — that is usually last week's export picked
+  by mistake.
+- **Every stats import is logged**, overwrite or not, to `imports.jsonl` in the
+  data folder. An overwrite's entry records the set it replaced and every value
+  it changed, with the old value, and keeps the full line of any player it
+  removed, so an earlier set can always be rebuilt. **Teams → Season History →
+  Import log** lists them for the selected team, newest first.
+- The imported set itself shows under **Season History**, section by section,
+  with the season totals when the file had them.
+
+A stats import also adds to the roster any player the roster does not have yet,
+and is logged doing so. It never edits a player who is already there: HUDL's
+`D. Kane` is matched to the roster's `Dylan Kane` (same jersey, same surname,
+same first initial) instead of being added twice, positions and grades are left
+alone, and a per-game file — jersey numbers, no names — adds nobody.
 
 ### Roster imports
 
@@ -987,15 +1042,18 @@ game's PDF — plus season totals aggregated across those games, and any HUDL or
 MaxPreps set you imported for them.
 
 So when you play them again in November, their September numbers are one click
-away. Nothing is overwritten by a later import: live-logged games and imported
-season sets are stored separately on the team record.
+away. Live-logged games and imported season sets are stored separately on the
+team record, so an import never touches a game you logged. A later import does
+replace the earlier *imported* set for that season — and the import log keeps
+what it replaced (see [Re-importing, and the import log](#re-importing-and-the-import-log)).
 
 ---
 
 ## Backups
 
-On every start the server copies `teams/`, `games/` and `config.json` into
-`data/_backups/<timestamp>/`, keeping the last 10. The files are small plain
+On every start the server copies `teams/`, `games/`, `config.json` and the
+stats import log `imports.jsonl` into `data/_backups/<timestamp>/`, keeping the
+last 10. The files are small plain
 text, so this costs almost nothing and means a stray delete, a mistyped
 `--data`, or a bad import never costs you a season.
 
@@ -1024,6 +1082,7 @@ data/
   teams/<team-id>.json           profile, rosters per sport, season totals
   games/<game-id>/meta.json      matchup, date, venue, level
   games/<game-id>/events.jsonl   append-only log — the source of truth
+  imports.jsonl                  append-only log of every stats import and overwrite
   vmix/…                         mirrored XML
 ```
 
@@ -1044,7 +1103,7 @@ renamed, so an interrupted write cannot corrupt a team or a game.
 npm test
 ```
 
-Runs 623 tests on a fresh clone (635 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers,
+Runs 767 tests on a fresh clone (786 with real HUDL/MaxPreps exports present): unit tests (clock maths, time of possession, droughts, importers, PDF text extraction, the import log,
 scorebot normalisation, field-source gating, feed-loss and stalled-feed detection,
 board-vs-entered score separation, baseball bases/count, per-sport scoring), tests against the real HUDL exports in this folder, and an end-to-end
 test that drives the live HTTP API through a football drive, undo, all six sports,
@@ -1094,7 +1153,8 @@ change anything:
   the entry in flight.
 - **Refusing to guess.** Where input is genuinely ambiguous the code stops and
   says so rather than producing plausible-looking numbers — MaxPreps PDFs are
-  rejected outright because their layout drops empty cells, and ambiguous CSV
+  rejected outright because their layout drops empty cells, a HUDL season PDF is
+  read by position and checked against its own totals, and ambiguous CSV
   columns are reported rather than silently mapped.
 
 ### Not included in this repository
@@ -1102,9 +1162,11 @@ change anything:
 Real HUDL and MaxPreps exports contain named high-school athletes and are
 deliberately excluded (see `.gitignore`). `test/fixtures/` holds scrubbed
 equivalents with invented names that reproduce the same formats and quirks, so
-the parser tests run on a fresh clone. `test/real-data.test.js` runs the same
-checks against real exports if you drop them in the project root, and skips
-cleanly if you do not.
+the parser tests run on a fresh clone; the HUDL season PDF is generated by
+`test/fixtures/hudl-season-pdf.js` the way HUDL's renderer writes it.
+`test/real-data.test.js` runs the same checks against real exports if you drop
+them in the project root (a season PDF can keep HUDL's own
+`hudl-season_stats_….pdf` name), and skips cleanly if you do not.
 
 ## License
 

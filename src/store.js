@@ -11,6 +11,7 @@ import { id, slug, localStamp, localDate, clone } from './util.js';
  *     teams/<teamId>.json          team profile + roster + season aggregates
  *     games/<gameId>/meta.json     matchup, date, venue, sport, settings
  *     games/<gameId>/events.jsonl  append-only event log (the source of truth)
+ *     imports.jsonl                append-only log of every stat import and overwrite
  *     vmix/<gameId>/*.xml          mirrored XML for vMix file-based data sources
  *     exports/                     generated CSV / PDF
  */
@@ -26,6 +27,7 @@ export class Store {
     };
     for (const d of Object.values(this.dirs)) fs.mkdirSync(d, { recursive: true });
     this.configPath = path.join(this.root, 'config.json');
+    this.importLogPath = path.join(this.root, 'imports.jsonl');
     this.config = this._readJSON(this.configPath) || {
       orgName: 'OpenStatsEngine',
       season: String(new Date().getFullYear()),
@@ -93,7 +95,9 @@ export class Store {
         const src = path.join(this.root, name);
         if (fs.existsSync(src)) fs.cpSync(src, path.join(dest, name), { recursive: true });
       }
-      if (fs.existsSync(this.configPath)) fs.copyFileSync(this.configPath, path.join(dest, 'config.json'));
+      for (const file of [this.configPath, this.importLogPath]) {
+        if (fs.existsSync(file)) fs.copyFileSync(file, path.join(dest, path.basename(file)));
+      }
     }
 
     const all = fs.readdirSync(root).filter((d) => /^\d{4}-/.test(d)).sort();
@@ -112,7 +116,7 @@ export class Store {
       if (st.isDirectory()) { for (const f of fs.readdirSync(p)) walk(path.join(p, f)); }
       else total += st.size;
     };
-    for (const name of ['teams', 'games']) walk(path.join(this.root, name));
+    for (const name of ['teams', 'games', 'imports.jsonl']) walk(path.join(this.root, name));
     return total;
   }
 
@@ -192,6 +196,56 @@ export class Store {
   getRoster(teamId, sport) {
     const t = this.getTeam(teamId);
     return t?.sports?.[sport]?.roster || [];
+  }
+
+  /**
+   * Store an imported season set for one team/sport/season, replacing any set
+   * already there. Returns the set it replaced (or null) so the caller can log
+   * exactly what the overwrite changed.
+   */
+  saveImportedStats(teamId, sport, season, set) {
+    const team = this.getTeam(teamId);
+    if (!team) throw new Error(`Unknown team: ${teamId}`);
+    team.sports[sport] = team.sports[sport] || { roster: [], season: {} };
+    team.sports[sport].season = team.sports[sport].season || {};
+    const bucket = team.sports[sport].season[season] = team.sports[sport].season[season] || { games: {} };
+    const previous = bucket.imported || null;
+    bucket.imported = set;
+    team.updatedAt = localStamp();
+    this._writeJSON(this.teamPath(teamId), team);
+    return previous;
+  }
+
+  getImportedStats(teamId, sport, season) {
+    return this.getTeam(teamId)?.sports?.[sport]?.season?.[season]?.imported || null;
+  }
+
+  // ---------- stat import log ----------
+  /**
+   * Append one stat import to imports.jsonl. Like a game's event log it is
+   * only ever appended to, so an import that overwrote an earlier one — and
+   * the numbers it replaced — stays on record after the team file has moved on.
+   */
+  logImport(entry) {
+    const full = { id: id('imp_'), ts: new Date().toISOString(), tsLocal: localStamp(), ...entry };
+    fs.appendFileSync(this.importLogPath, JSON.stringify(full) + '\n');
+    return full;
+  }
+
+  /** Logged imports, oldest first, optionally for one team and/or sport. */
+  readImportLog({ teamId = null, sport = null } = {}) {
+    let text = '';
+    try { text = fs.readFileSync(this.importLogPath, 'utf8'); } catch { return []; }
+    const out = [];
+    for (const line of text.split('\n')) {
+      if (!line.trim()) continue;
+      let e;
+      try { e = JSON.parse(line); } catch { continue; }   // a torn final line
+      if (teamId && e.teamId !== teamId) continue;
+      if (sport && e.sport !== sport) continue;
+      out.push(e);
+    }
+    return out;
   }
 
   // ---------- games ----------

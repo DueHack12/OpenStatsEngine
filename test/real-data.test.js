@@ -8,7 +8,7 @@
  */
 import fs from 'node:fs';
 import { parseHudlPerGame, parseHudlSeasonHTML } from '../src/importers/hudl.js';
-import { detectStatsFormat } from '../src/importers/index.js';
+import { detectStatsFormat, importStatsAuto } from '../src/importers/index.js';
 
 // Checked at the project root and in a "Hudl Files/" subfolder, which is where
 // the working copy keeps them. Both are gitignored.
@@ -19,9 +19,22 @@ const find = (name) => {
   }
   return new URL(`../${name}`, import.meta.url);   // reported as missing
 };
+// HUDL names its season PDF download "hudl-season_stats_<ids>.pdf"; take
+// that name as it comes, or one renamed to "HUDL SEASON.pdf".
+const findSeasonPdf = () => {
+  for (const rel of ['../', '../Hudl Files/']) {
+    const dir = new URL(rel, import.meta.url);
+    let names = [];
+    try { names = fs.readdirSync(dir); } catch { continue; }
+    const hit = names.find((n) => /^(hudl season\.pdf|hudl-season_stats.*\.pdf)$/i.test(n));
+    if (hit) return new URL(hit, dir);
+  }
+  return new URL('../HUDL SEASON.pdf', import.meta.url);
+};
 const FILES = {
   perGame: find('HUDL PER GAME.txt'),
   season: find('HUDL SEASON.html'),
+  seasonPdf: findSeasonPdf(),
   pdf: find('MAXPREPS EXAMPLE.pdf')
 };
 
@@ -66,6 +79,19 @@ if (fs.existsSync(FILES.season)) {
   ok('made/attempted pairs split', kick && kick.stats.fgm <= kick.stats.fga,
     kick ? `${kick.stats.fgm}/${kick.stats.fga}` : 'none');
   ok('no totals rows leaked in', !hs.players.some((p) => /rest of team|total/i.test(p.name)));
+}
+
+if (fs.existsSync(FILES.seasonPdf)) {
+  const buf = fs.readFileSync(FILES.seasonPdf);
+  eq('season PDF detected', detectStatsFormat(buf), 'pdf');
+  const hp = importStatsAuto(buf, 'football');
+  eq('season PDF read as HUDL', hp.kind, 'hudl-season-pdf');
+  eq('season PDF: all sections', hp.sections.length, 8);
+  eq('season PDF: every total checks out', hp.warnings.filter((w) => /add up/.test(w)), []);
+  ok('season PDF: players parsed', hp.players.length > 20, `${hp.players.length} players`);
+  ok('season PDF: team totals', hp.team && hp.team.games > 0 && hp.team.stats.total_yards > 0,
+    hp.team ? `${hp.team.games} of ${hp.team.scheduled} games` : 'none');
+  ok('season PDF: no totals rows leaked in', !hp.players.some((p) => /rest of team|total/i.test(p.name)));
 }
 
 if (fs.existsSync(FILES.pdf)) {

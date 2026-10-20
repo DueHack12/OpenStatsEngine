@@ -392,6 +392,25 @@ console.log('\n== errors are sane ==');
     catch (e) { ok('404s an unknown game', /404|No such game/.test(e.message)); }
   }
 
+  console.log('\n== HUDL season PDF over HTTP, and the import log ==');
+  {
+    // The browser sends a PDF as base64 in the JSON body, since it is not text.
+    const { hudlSeasonPdf } = await import('./fixtures/hudl-season-pdf.js');
+    const send = (extra) => j(`/api/teams/${away.id}/stats/import`, { method: 'POST',
+      body: JSON.stringify({ sport: 'football', season: 'smoke', base64: hudlSeasonPdf().toString('base64'), source: 'season.pdf', ...extra }) });
+    const pv = await send({ preview: true });
+    check('preview reads the PDF', pv.kind, 'hudl-season-pdf');
+    check('previewed players', pv.players.length, 13);
+    const a = await send();
+    ok('imports', a.ok && a.replaced === null);
+    const b = await send();
+    check('a second import reports what it replaced', b.replaced?.label, 'season.pdf');
+    const log = await j(`/api/teams/${away.id}/imports?sport=football`);
+    check('both imports are logged, newest first', log.entries.map((e) => e.action).join(','), 'overwrite,import');
+    const h = await j(`/api/teams/${away.id}/history?sport=football&season=smoke`);
+    check('history carries the imported set', h.seasons[0].imported.playerCount, 13);
+  }
+
   console.log('\n== monitor endpoint ==');
   {
     const m = await j('/api/monitor');

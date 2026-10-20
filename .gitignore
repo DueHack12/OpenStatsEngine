@@ -12,6 +12,8 @@ Rosters/
 HUDL SEASON FILES/
 HUDL*.txt
 HUDL*.html
+HUDL*.pdf
+hudl-season_stats*.pdf
 MAXPREPS*.pdf
 !test/fixtures/**
 

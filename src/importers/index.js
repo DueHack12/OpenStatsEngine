@@ -1,7 +1,7 @@
 import { parseCSV } from '../util.js';
 import { getSport } from '../sports/index.js';
 import { parseHTMLTables, stripTags } from './html.js';
-import { parseHudlPerGame, parseHudlSeasonHTML, looksLikeHudlPerGame, looksLikeHudlSeason } from './hudl.js';
+import { parseHudlPerGame, parseHudlSeasonHTML, parseHudlSeasonPDF, looksLikeHudlPerGame, looksLikeHudlSeason } from './hudl.js';
 
 /* ------------------------------------------------------------------ *
  * Header normalisation                                                *
@@ -196,8 +196,12 @@ export async function importRosterFromURL(url) {
  * Format detection + dispatch                                         *
  * ------------------------------------------------------------------ */
 
-/** Identify what the operator just pasted or uploaded. */
+/** Identify what the operator just pasted or uploaded (text, or a file's bytes). */
 export function detectStatsFormat(text) {
+  if (Buffer.isBuffer(text)) {
+    if (text.subarray(0, 8).toString('latin1').startsWith('%PDF-')) return 'pdf';
+    text = text.toString('utf8');
+  }
   const s = String(text);
   if (s.slice(0, 8).startsWith('%PDF-')) return 'pdf';
   if (looksLikeHudlPerGame(s)) return 'hudl-pergame';
@@ -211,20 +215,36 @@ export function detectStatsFormat(text) {
  * One entry point for every stat-import shape we support. Returns a uniform
  * `{ players:[{number,name,stats}], kind, warnings, matched }`.
  *
- * MaxPreps PDFs are refused on purpose: that layout drops empty cells, so the
- * remaining values no longer line up with their column headers and any parse
- * would produce confidently wrong numbers.
+ * `input` is text, or a Buffer for a file that is not text (a PDF).
+ *
+ * The one PDF that imports is HUDL's season report: its text is read with its
+ * position on the page, so every value is placed under its own heading, and
+ * the result is checked against the report's own totals. Any other PDF —
+ * MaxPreps above all — is refused on purpose: that layout drops empty cells,
+ * so the remaining values no longer line up with their column headers and a
+ * parse would produce confidently wrong numbers.
  */
-export function importStatsAuto(text, sportId, { category = null, merge = true, rosterNums = null } = {}) {
-  const kind = detectStatsFormat(text);
+export function importStatsAuto(input, sportId, { category = null, merge = true, rosterNums = null } = {}) {
+  const kind = detectStatsFormat(input);
+  const text = Buffer.isBuffer(input) && kind !== 'pdf' ? input.toString('utf8') : input;
   switch (kind) {
-    case 'pdf':
+    case 'pdf': {
+      // Read as text, a PDF's binary streams are replaced with U+FFFD and lost.
+      if (typeof input === 'string' && input.includes('\uFFFD')) {
+        throw new Error('That PDF arrived as text and was damaged on the way. Reload this page and choose the file again.');
+      }
+      let season = null;
+      try { season = parseHudlSeasonPDF(input); }
+      catch (e) { if (/password|encrypted/i.test(e.message)) throw e; }
+      if (season?.sections.length) return season;
       throw new Error(
-        'That is a PDF. MaxPreps PDF reports drop empty cells, so the values no longer ' +
+        'That PDF is not a HUDL season-stats report, the only PDF that can be imported. ' +
+        'MaxPreps PDF reports drop empty cells, so the values no longer ' +
         'line up with their column headings and importing one would produce wrong numbers. ' +
         'Use the MaxPreps CSV/Excel export instead, or copy the stats table from the web ' +
         'page and paste it here — both import cleanly.'
       );
+    }
     case 'hudl-pergame':
       return parseHudlPerGame(text, { merge, rosterNums });
     case 'hudl-season':
@@ -361,4 +381,81 @@ export function parseStatsCSV(text, sportId, category = null) {
     warnings: Object.keys(smap).length ? notes
       : ['No stat columns were recognised — player names imported only.', ...notes]
   };
+}
+
+/* ------------------------------------------------------------------ *
+ * Re-imports: what an overwrite changes, and who is new to the roster *
+ * ------------------------------------------------------------------ */
+
+const playerKey = (p) => `${String(p.number ?? '').trim()}|${String(p.name || '').trim().toLowerCase()}`;
+
+function diffStats(before = {}, after = {}) {
+  const d = {};
+  for (const k of new Set([...Object.keys(before || {}), ...Object.keys(after || {})])) {
+    const a = before?.[k] ?? null, b = after?.[k] ?? null;
+    if (a !== b) d[k] = [a, b];
+  }
+  return d;
+}
+
+/**
+ * What replacing one imported season set with another changes, player by
+ * player, as `{ added, removed, changed, unchanged, team }`. Stats are kept on
+ * both sides — new lines for added players, the old line for removed ones,
+ * `[old, new]` for each changed stat — so the import log alone can rebuild
+ * any set an overwrite replaced. With no `prev`, every player is `added`.
+ */
+export function compareImports(prev, next) {
+  const before = new Map((prev?.players || []).map((p) => [playerKey(p), p]));
+  const after = new Map((next?.players || []).map((p) => [playerKey(p), p]));
+  const added = [], removed = [], changed = [];
+  let unchanged = 0;
+  for (const [k, p] of after) {
+    const old = before.get(k);
+    if (!old) { added.push({ number: p.number, name: p.name, stats: p.stats }); continue; }
+    const d = diffStats(old.stats, p.stats);
+    if (Object.keys(d).length) changed.push({ number: p.number, name: p.name, stats: d });
+    else unchanged++;
+  }
+  for (const [k, p] of before) {
+    if (!after.has(k)) removed.push({ number: p.number, name: p.name, stats: p.stats });
+  }
+
+  // Season totals for the team and its opponents, when the file carries them.
+  let team = null;
+  if (prev?.team || next?.team) {
+    const a = prev?.team || {}, b = next?.team || {};
+    const t = {
+      ...diffStats({ games: a.games, scheduled: a.scheduled }, { games: b.games, scheduled: b.scheduled }),
+      ...Object.fromEntries(Object.entries(diffStats(a.stats, b.stats)).map(([k, v]) => [`team.${k}`, v])),
+      ...Object.fromEntries(Object.entries(diffStats(a.opponents?.stats, b.opponents?.stats)).map(([k, v]) => [`opponents.${k}`, v]))
+    };
+    if (Object.keys(t).length) team = t;
+  }
+  return { added, removed, changed, unchanged, team };
+}
+
+const looseName = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+/** Is this imported player already this roster entry? */
+function samePlayer(r, p) {
+  const rn = looseName(r.name), pn = looseName(p.name);
+  if (rn && rn === pn) return true;
+  if (String(r.number ?? '').trim() !== String(p.number ?? '').trim()) return false;
+  // HUDL writes "D. Kane" for the roster's "Dylan Kane": same jersey, same
+  // surname, same first initial.
+  const [rf, ...rl] = rn.split(' '), [pf, ...pl] = pn.split(' ');
+  return !!rf && !!pf && rf[0] === pf[0] && rl.length > 0 && rl.join(' ') === pl.join(' ');
+}
+
+/**
+ * Imported players the roster does not have yet. A stat import only ever adds
+ * to the roster: it says nothing about positions or grades, so merging it into
+ * existing entries used to blank them, and a per-game file — jersey numbers,
+ * no names — used to add a nameless duplicate of every player it matched.
+ */
+export function rosterNewcomers(roster, players) {
+  return players
+    .filter((p) => String(p.name || '').trim() && !roster.some((r) => samePlayer(r, p)))
+    .map((p) => ({ number: String(p.number ?? '').trim(), name: p.name.trim(), pos: p.pos || '', year: p.year || '' }));
 }

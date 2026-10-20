@@ -10,7 +10,7 @@
 > What that means for you:
 >
 > - **It has run a handful of live games, not a season.** The test suite is
->   thorough (623 tests on a fresh clone, 635 with real exports in place), but
+>   thorough (767 tests on a fresh clone, 786 with real exports in place), but
 >   passing tests are not the same as a Friday night with a scoreboard operator,
 >   and the first real match still turned up three feed-parsing bugs the
 >   emulator never triggered. Expect to find more in a sport it has not seen.
@@ -101,7 +101,9 @@ That is enough to go on air. Everything else is optional.
   type-to-find for any number in the game.
 - **A feed monitor** at `/monitor` — the raw scoreboard messages, what OSE made
   of them, and what actually reached the log.
-- **Imports** from HUDL and MaxPreps CSV exports, for both teams.
+- **Imports** from HUDL (per-game export, season page or season-stats PDF) and
+  MaxPreps CSV exports, for both teams. Every stats import is logged, and a
+  re-import records exactly what it overwrote.
 - **Exports** — PDF game reports, box scores, play-by-play and season CSVs.
 - **Season totals** that accumulate per team, so the second meeting knows about
   the first.
@@ -140,7 +142,7 @@ in any editor. Rolling backups are taken on every start.
 npm test              # in a second terminal: npm run test:serve
 ```
 
-623 tests on a fresh clone, covering clock maths, per-sport scoring, the
+767 tests on a fresh clone, covering clock maths, per-sport scoring, the
 importers, scorebot normalisation, feed-loss detection, XML and PDF generation,
 plus an end-to-end pass that drives the real HTTP API through a full game.
 

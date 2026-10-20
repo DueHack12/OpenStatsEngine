@@ -7,7 +7,7 @@ import { clockFromEvents, clockNow } from './clock.js';
 import { XML_VIEWS, writeXmlFiles } from './vmix.js';
 import { boxScoreCSV, teamStatsCSV, playByPlayCSV, scoringCSV, seasonCSV, rosterCSV } from './exports/csv.js';
 import { gameReportPDF } from './exports/report.js';
-import { parseRosterCSV, importRosterFromURL, importStatsAuto } from './importers/index.js';
+import { parseRosterCSV, importRosterFromURL, importStatsAuto, compareImports, rosterNewcomers } from './importers/index.js';
 import { importTeamsFromSheet } from './importers/sheets.js';
 import { localStamp } from './util.js';
 import { FEED_FIELDS } from './integrations/scorebot.js';
@@ -248,36 +248,86 @@ export function registerRoutes(route, ctx) {
   });
 
   /**
-   * Stat import for HUDL (per-game pipe export or saved season page), MaxPreps
-   * CSV/HTML, or any spreadsheet. Format is detected automatically.
+   * Stat import for HUDL (per-game pipe export, saved season page, or the
+   * season report as a PDF), MaxPreps CSV/HTML, or any spreadsheet. Format is
+   * detected automatically. A file that is not text (a PDF) comes as `base64`
+   * instead of `csv`.
+   *
+   * An import replaces the team's imported set for that season. Every import
+   * is written to the import log — and when it replaces an earlier set, the
+   * entry records what changed, player by player, with the old values.
+   * `preview: true` reports the same comparison without saving anything.
    */
   route('POST', '/api/teams/:id/stats/import', ({ params, body }) => {
-    const { sport, season, csv, label = 'import', category = null, merge = true, preview = false } = body || {};
-    if (!sport || !csv) bad('sport and csv (the file contents) are required');
+    const { sport, season, csv, base64, source = '', label = '', category = null, merge = true, preview = false } = body || {};
+    if (!sport || (!csv && !base64)) bad('sport and csv (the file contents) are required');
+    const team = store.getTeam(params.id) || bad('Unknown team', 404);
     // HUDL per-game files hold both teams and identify players only by jersey,
     // so hand the importer this team's numbers to split them apart.
-    const rosterNums = store.getRoster(params.id, sport).map((p) => p.number).filter(Boolean);
-    const result = importStatsAuto(csv, sport, {
+    const roster = store.getRoster(params.id, sport);
+    const rosterNums = roster.map((p) => p.number).filter(Boolean);
+    const result = importStatsAuto(base64 ? Buffer.from(String(base64), 'base64') : csv, sport, {
       category, merge, rosterNums: rosterNums.length ? rosterNums : null
     });
     if (!result.players.length) bad(`No player rows found. ${(result.warnings || []).join(' ')}`);
-    if (preview) return { preview: true, ...result };
 
-    const team = store.getTeam(params.id) || bad('Unknown team', 404);
     const s = season || store.config.season;
-    team.sports[sport] = team.sports[sport] || { roster: [], season: {} };
-    team.sports[sport].season[s] = team.sports[sport].season[s] || { games: {} };
-    team.sports[sport].season[s].imported = {
-      label, importedAt: localStamp(),
+    const set = {
+      label: String(label || source || result.kind || 'import').slice(0, 120),
+      source: String(source).slice(0, 200),
+      kind: result.kind || 'csv',
+      importedAt: localStamp(),
       matchedColumns: result.matched,
+      sections: result.sections || null,
+      team: result.team || null,
       players: result.players
     };
-    store.saveTeam(team);
-    // names from the import also seed the roster, which is usually what you want
-    // for an opponent you have never played before
-    store.saveRoster(params.id, sport,
-      result.players.map((p) => ({ number: p.number, name: p.name, pos: p.pos, year: p.year })), 'merge');
-    return { ok: true, imported: result.players.length, matchedColumns: result.matched, warnings: result.warnings };
+    const current = store.getImportedStats(params.id, sport, s);
+    const changes = compareImports(current, set);
+    const replaces = current ? {
+      label: current.label, kind: current.kind || null, importedAt: current.importedAt,
+      players: (current.players || []).length, games: current.team?.games ?? null
+    } : null;
+    const warnings = [...(result.warnings || [])];
+    // A file covering fewer games than the set it replaces is usually an old
+    // export picked by mistake, and importing it would roll the season back.
+    if (replaces?.games != null && set.team?.games != null && set.team.games < replaces.games) {
+      warnings.unshift(`This file covers ${set.team.games} game(s); the set it replaces covers ${replaces.games}. ` +
+        'Check you picked the latest export.');
+    }
+    const newcomers = rosterNewcomers(roster, result.players);
+
+    if (preview) {
+      return { preview: true, ...result, warnings, season: s, replaces, changes, rosterAdds: newcomers.length };
+    }
+
+    store.saveImportedStats(params.id, sport, s, set);
+    // Names from the import also seed the roster, which is usually what you
+    // want for an opponent you have never played before. Only players the
+    // roster lacks are added; existing entries are left exactly as they are.
+    if (newcomers.length) store.saveRoster(params.id, sport, newcomers, 'merge');
+    const entry = store.logImport({
+      action: current ? 'overwrite' : 'import',
+      teamId: team.id, teamName: team.name, sport, season: s,
+      label: set.label, source: set.source, kind: set.kind,
+      players: set.players.length, matchedColumns: set.matchedColumns,
+      games: set.team?.games ?? null, scheduled: set.team?.scheduled ?? null,
+      replaced: replaces, changes,
+      rosterAdded: newcomers.map((p) => ({ number: p.number, name: p.name })),
+      warnings
+    });
+    return {
+      ok: true, imported: result.players.length, kind: set.kind, season: s,
+      matchedColumns: result.matched, warnings, sections: result.sections || null, team: set.team,
+      replaced: replaces, changes, rosterAdded: entry.rosterAdded, logId: entry.id
+    };
+  });
+
+  /** The import log for one team, newest first. `sport` narrows it. */
+  route('GET', '/api/teams/:id/imports', ({ params, query }) => {
+    store.getTeam(params.id) || bad('Unknown team', 404);
+    const entries = store.readImportLog({ teamId: params.id, sport: query.sport || null }).reverse();
+    return { teamId: params.id, entries };
   });
 
   /* ---------------- games ---------------- */
@@ -599,8 +649,11 @@ export function registerRoutes(route, ctx) {
         players: [...totals.values()].sort((a, b2) => (parseInt(a.number, 10) || 999) - (parseInt(b2.number, 10) || 999)),
         imported: b.imported ? {
           label: b.imported.label, importedAt: b.imported.importedAt,
+          kind: b.imported.kind || null, source: b.imported.source || '',
           playerCount: b.imported.players.length,
           matchedColumns: b.imported.matchedColumns,
+          sections: b.imported.sections || null,
+          team: b.imported.team || null,
           players: b.imported.players
         } : null,
         updatedAt: b.updatedAt

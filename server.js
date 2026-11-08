@@ -22,6 +22,13 @@ const PUBLIC = path.join(ROOT, 'public');
 // A packaged app is double-clicked, so it opens the entry page itself.
 const OPEN = argv.includes('--open') || (packaged && !argv.includes('--no-open'));
 const UPDATE_CHECK = !argv.includes('--no-update-check') && !process.env.OSE_NO_UPDATE_CHECK;
+/**
+ * Run by the app's own launcher ("mac" or "win") rather than in a console: the
+ * menu bar item on a Mac, the taskbar window on Windows. It shows this output
+ * in its own window, reads the Local and Network lines below to know where we
+ * are, and stops us by closing our stdin. Keep those two lines' format.
+ */
+const HOSTED = process.env.OSE_HOSTED || '';
 
 /**
  * Stop with a message. A packaged app runs in a console window that closes the
@@ -296,7 +303,10 @@ server.listen(PORT, HOST, () => {
   console.log(`  Announcer view: ${base}/announcer`);
   console.log(`  Feed monitor  : ${base}/monitor`);
   console.log(`\n  Open the Network URL on any phone or tablet on this Wi-Fi.`);
-  console.log(`  ${packaged ? 'Close this window or press' : 'Press'} Ctrl+C to stop.\n${line}\n`);
+  const stop = HOSTED === 'mac' ? 'Quit OpenStatsEngine from its menu bar icon to stop.'
+    : HOSTED ? 'Close this window to stop.'
+      : `${packaged ? 'Close this window or press' : 'Press'} Ctrl+C to stop.`;
+  console.log(`  ${stop}\n${line}\n`);
 
   if (OPEN) openBrowser(`http://localhost:${port}/`);
   checkForUpdate({ enabled: UPDATE_CHECK }).then((u) => {
@@ -310,14 +320,19 @@ server.listen(PORT, HOST, () => {
   }
 });
 
-for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, () => {
-    console.log('\nShutting down…');
-    scorebot.stop();
-    server.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 1500);
-  });
+let stopping = false;
+function shutdown() {
+  if (stopping) return;
+  stopping = true;
+  console.log('\nShutting down…');
+  scorebot.stop();
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(0), 1500);
 }
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, shutdown);
+// The launcher closes our stdin to stop us. It also closes when the launcher
+// dies for any reason, so a server is never left running with no window.
+if (HOSTED) process.stdin.on('end', shutdown).on('error', shutdown).resume();
 
 process.on('uncaughtException', (e) => console.error('Uncaught:', e));
 process.on('unhandledRejection', (e) => console.error('Unhandled rejection:', e));

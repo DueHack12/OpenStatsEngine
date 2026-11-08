@@ -16,11 +16,17 @@ export { settingsPath, readSettings } from './settings.js';
 
 /**
  * What to do about a folder the system will not let us into. On a Mac the
- * usual cause is privacy protection: the app runs inside Terminal, and
- * Terminal has to be allowed into Google Drive and other cloud folders.
+ * usual cause is privacy protection: whatever we run in has to be allowed into
+ * Google Drive and other cloud folders. That is the OpenStatsEngine app itself
+ * when it is the menu bar app, and Terminal when started from source.
  */
-export function permissionHint(code) {
+export function permissionHint(code, hosted = process.env.OSE_HOSTED) {
   if (!['EPERM', 'EACCES'].includes(code)) return '';
+  if (process.platform === 'darwin' && hosted === 'mac') {
+    return 'macOS is not letting OpenStatsEngine into this folder. Open System Settings → Privacy & Security → ' +
+      'Files and Folders, find OpenStatsEngine and allow access; if it is not listed, add OpenStatsEngine under ' +
+      'Full Disk Access instead. Then quit OpenStatsEngine from its menu bar icon and open it again.';
+  }
   if (process.platform === 'darwin') {
     return 'macOS is not letting OpenStatsEngine into this folder. Open System Settings → Privacy & Security → ' +
       'Files and Folders, find Terminal (OpenStatsEngine runs inside it) and allow access; if Terminal is not ' +
@@ -62,7 +68,7 @@ function dataIn(dir) {
  * What a folder holds, without changing anything.
  *
  * Beyond the counts, it says why a folder looks empty when it may not be: it
- * could not be read (on a Mac, Terminal not yet allowed into Google Drive), or
+ * could not be read (on a Mac, the app or Terminal not yet allowed into Google Drive), or
  * the data is one level down, as when pointing at a source install whose data
  * sits in its `data` folder. `nested` lists subfolders that hold data.
  */

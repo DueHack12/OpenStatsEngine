@@ -1,0 +1,33 @@
+// Icon, manifest and version information for OpenStatsEngine.exe.
+// version.h is written by build/package.mjs with the release's version.
+#include <windows.h>
+#include "version.h"
+
+1 ICON "icon.ico"
+1 RT_MANIFEST "launcher.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION OSE_VERSION_NUM
+PRODUCTVERSION OSE_VERSION_NUM
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"
+    BEGIN
+      VALUE "CompanyName", "OpenStatsEngine"
+      VALUE "FileDescription", "OpenStatsEngine"
+      VALUE "FileVersion", OSE_VERSION_STR
+      VALUE "InternalName", "OpenStatsEngine"
+      VALUE "LegalCopyright", "MIT License"
+      VALUE "OriginalFilename", "OpenStatsEngine.exe"
+      VALUE "ProductName", "OpenStatsEngine"
+      VALUE "ProductVersion", OSE_VERSION_STR
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

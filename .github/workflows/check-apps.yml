@@ -83,11 +83,17 @@ jobs:
           $exe = "$env:RUNNER_TEMP\ose\OpenStatsEngine\OpenStatsEngine.exe"
           if (-not (Test-Path "$env:RUNNER_TEMP\ose\OpenStatsEngine\ose-server.exe")) { Write-Error 'No ose-server.exe in the zip'; exit 1 }
           $app = Start-Process $exe -PassThru -ArgumentList '--port','8782','--data',"$env:RUNNER_TEMP\ose-data",'--no-backup','--no-open','--no-update-check'
+          # 127.0.0.1, not localhost: on Windows localhost tries IPv6 first, and a
+          # refused local connection there takes two seconds to give up.
           $up = $false
           foreach ($i in 1..30) {
-            try { Invoke-WebRequest http://localhost:8782/api/config -UseBasicParsing -TimeoutSec 2 | Out-Null; $up = $true; break } catch { Start-Sleep 1 }
+            try { Invoke-WebRequest http://127.0.0.1:8782/api/config -UseBasicParsing -TimeoutSec 5 | Out-Null; $up = $true; break } catch { Start-Sleep 1 }
           }
-          if (-not $up) { Write-Error 'The app did not start the server'; exit 1 }
+          if (-not $up) {
+            Get-CimInstance Win32_Process -Filter "name='ose-server.exe' or name='OpenStatsEngine.exe'" | Format-List Name, ProcessId, CommandLine
+            foreach ($p in Get-Process ose-server -ErrorAction SilentlyContinue) { Get-NetTCPConnection -OwningProcess $p.Id -ErrorAction SilentlyContinue | Format-Table }
+            Write-Error 'The app did not start the server'; exit 1
+          }
           if (-not (Get-Process ose-server -ErrorAction SilentlyContinue)) { Write-Error 'No server process'; exit 1 }
           $app.Refresh()
           "Window title: '$($app.MainWindowTitle)'"

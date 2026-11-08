@@ -11,8 +11,9 @@
 //   Opening the app again (from Finder or Launchpad) also shows it, and so does
 //   the server stopping on its own, so the reason is never hidden.
 // - Quit stops the server: its stdin is closed and it is sent SIGTERM, both of
-//   which it takes as the signal to shut down cleanly. If this app dies, the
-//   closed stdin still stops it.
+//   which it takes as the signal to shut down cleanly, and we wait for it to go
+//   (killing it after a few seconds) before quitting ourselves. If this app
+//   dies, the closed stdin still stops it.
 // - Arguments go to the server: open -a OpenStatsEngine --args --port 9000
 //
 // The server prints "Local : http://..." and "Network : http://..." lines;
@@ -57,6 +58,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private var server: Process?
     private var serverInput: Pipe?
+    private var exitWatch: DispatchSourceProcess?   // tells us when the server has exited
+    private var exited = DispatchSemaphore(value: 0)
     private var state = State.starting
     private var generation = 0          // which start of the server events belong to
     private var pending = Data()        // output read but not yet a whole line
@@ -66,7 +69,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var localURL: String?
     private var networkURLs: [String] = []
     private var restartWhenStopped = false
-    private var quitting = false
 
     private var version: String {
         Bundle.main.infoDictionary?["CFBundleGetInfoString"] as? String ?? appName
@@ -314,13 +316,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         false
     }
 
+    /// Stop the server before going, and wait for it here. Not with
+    /// .terminateLater: while that waits, AppKit runs only its modal run loop
+    /// mode, in which Process never reports that the server has exited.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        guard server != nil else { return .terminateNow }
-        if !quitting {
-            quitting = true
-            stopServer()
+        guard let p = server else { return .terminateNow }
+        let pid = p.processIdentifier
+        try? serverInput?.fileHandleForWriting.close()
+        serverInput = nil
+        if p.isRunning { p.terminate() }
+        if exited.wait(timeout: .now() + 4) == .timedOut {
+            kill(pid, SIGKILL)
+            _ = exited.wait(timeout: .now() + 2)
         }
-        return .terminateLater
+        generation += 1  // whatever the old server still reports, we are done with it
+        server = nil
+        return .terminateNow
     }
 
     // MARK: - The server
@@ -377,6 +388,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
         server = p
         serverInput = input
+
+        // Our own watch on the server's exit, on a queue of its own, so quitting
+        // can wait for it on the main thread.
+        let done = DispatchSemaphore(value: 0)
+        exited = done
+        exitWatch?.cancel()
+        let watch = DispatchSource.makeProcessSource(identifier: p.processIdentifier, eventMask: .exit,
+                                                     queue: DispatchQueue.global(qos: .userInitiated))
+        watch.setEventHandler { [weak self] in
+            done.signal()
+            DispatchQueue.main.async { self?.processDidExit(generation: gen) }
+        }
+        watch.resume()
+        exitWatch = watch
         refresh()
     }
 
@@ -429,6 +454,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
     }
 
+    /// The exit as our own watch saw it. Process's termination handler, which
+    /// has the exit code, is preferred, but is given only a moment to arrive.
+    private func processDidExit(generation gen: Int) {
+        guard gen == generation else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self, gen == self.generation else { return }
+            if self.exitReason == nil { self.exitReason = "The server stopped." }
+            self.finish(generation: gen, force: true)
+        }
+    }
+
     private func outputDidEnd(generation gen: Int) {
         guard gen == generation else { return }
         outputEnded = true
@@ -457,11 +493,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
         server = nil
         serverInput = nil
+        exitWatch?.cancel()
+        exitWatch = nil
 
-        if quitting {
-            NSApp.reply(toApplicationShouldTerminate: true)
-            return
-        }
         if restartWhenStopped {
             restartWhenStopped = false
             appendLog("\n—— Restarting ——\n\n")

@@ -49,7 +49,11 @@ jobs:
           # Quitting the app (as logging out does) must stop the server too.
           kill -TERM $LAUNCHER
           for i in $(seq 15); do pgrep -f "OpenStatsEngine.app/Contents/MacOS/" >/dev/null || break; sleep 1; done
-          if pgrep -fl "OpenStatsEngine.app/Contents/MacOS/"; then echo "::error::The app or its server is still running after quitting"; exit 1; fi
+          if pgrep -fl "OpenStatsEngine.app/Contents/MacOS/"; then
+            echo "::error::The app or its server is still running after quitting"
+            sample $LAUNCHER 1 2>/dev/null | sed -n '1,80p' || true
+            exit 1
+          fi
           if curl -sf localhost:8782/api/config >/dev/null; then echo "::error::The server still answers after quitting"; exit 1; fi
           echo "The Mac app started the server and stopped it on quit."
 

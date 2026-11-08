@@ -9,11 +9,18 @@
  * script, the web UI is attached as assets, and both are injected into a copy
  * of the official Node binary for each platform. Output lands in dist/.
  *
- * - win   → OpenStatsEngine-<v>-windows-x64.exe
+ * - win   → OpenStatsEngine-<v>-windows-x64.zip: OpenStatsEngine.exe, a small
+ *           window that shows in the taskbar with our name and icon, and
+ *           ose-server.exe, the server it runs. Needs mingw-w64 for the window
+ *           (brew install mingw-w64, or apt install gcc-mingw-w64-x86-64).
  * - mac   → OpenStatsEngine-<v>-macos.zip, a universal (Apple silicon + Intel)
- *           .app. Must be built on a Mac: the binary has to be re-signed after
- *           injection, and Apple silicon refuses to run an unsigned one.
+ *           .app that lives in the menu bar. Must be built on a Mac: the
+ *           binary has to be re-signed after injection, and Apple silicon
+ *           refuses to run an unsigned one; the menu bar part is Swift.
  * - linux → OpenStatsEngine-<v>-linux-x64.tar.gz
+ *
+ * The two launchers are in build/windows and build/mac. They run the server
+ * with OSE_HOSTED set and show its output in their own window (see server.js).
  *
  * Build tools (esbuild, postject) are fetched with npx at build time; the app
  * itself still has no dependencies. Needs network access for those and for the
@@ -22,6 +29,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -36,6 +44,7 @@ const ESBUILD = 'esbuild@0.28.2';
 const POSTJECT = 'postject@1.0.0-alpha.6';
 const RESEDIT = 'resedit@3.1.0';
 const ICON = path.join(ROOT, 'build', 'icon');
+const MINGW = 'x86_64-w64-mingw32';
 const NUMERIC = VERSION.split('-')[0].split('.').map((n) => parseInt(n, 10) || 0);
 
 const here = { win32: 'win', darwin: 'mac', linux: 'linux' }[process.platform];
@@ -46,7 +55,14 @@ for (const t of targets) if (!['win', 'mac', 'linux'].includes(t)) die(`Unknown 
 if (targets.includes('mac') && process.platform !== 'darwin') {
   die('The macOS app has to be built on a Mac (it must be re-signed after injection).');
 }
+if (targets.includes('win') && !has(`${MINGW}-gcc`)) {
+  die(`The Windows app needs mingw-w64 (${MINGW}-gcc) for its window.\n` +
+      '  On a Mac: brew install mingw-w64. On Ubuntu: apt install gcc-mingw-w64-x86-64.');
+}
 
+function has(cmd) {
+  try { execFileSync(cmd, ['--version'], { stdio: 'ignore' }); return true; } catch { return false; }
+}
 function die(msg) { console.error(`\n  ${msg}\n`); process.exit(1); }
 function run(cmd, args, opts = {}) {
   console.log(`  $ ${cmd} ${args.join(' ')}`);
@@ -137,7 +153,7 @@ function inject(bin, macho = false) {
  * resedit has rewritten it, while resedit carries the injected blob through.
  * Checked afterwards, byte for byte, because a wrong guess there is a broken app.
  */
-async function brandWindowsExe(exe) {
+async function brandWindowsExe(exe, { description, filename }) {
   const tools = path.join(WORK, 'tools');
   fs.mkdirSync(tools, { recursive: true });
   run('npm', ['install', '--silent', '--no-save', '--no-package-lock', '--prefix', tools, RESEDIT]);
@@ -157,8 +173,8 @@ async function brandWindowsExe(exe) {
   const [vi] = ResEdit.Resource.VersionInfo.fromEntries(res.entries);
   if (vi) {
     const strings = {
-      ProductName: NAME, FileDescription: NAME, CompanyName: NAME,
-      InternalName: NAME, OriginalFilename: `${NAME}.exe`,
+      ProductName: NAME, FileDescription: description, CompanyName: NAME,
+      InternalName: NAME, OriginalFilename: filename,
       FileVersion: VERSION, ProductVersion: VERSION,
       LegalCopyright: 'MIT License'
     };
@@ -181,16 +197,90 @@ async function brandWindowsExe(exe) {
   console.log(`  icon and version info set (${icons.length} icon sizes)`);
 }
 
+/** The window that runs the server on Windows: build/windows, compiled with mingw-w64. */
+function windowsLauncher(exe) {
+  const src = path.join(ROOT, 'build', 'windows');
+  fs.writeFileSync(path.join(WORK, 'version.h'),
+    `#define OSE_VERSION_NUM ${[...NUMERIC, 0].join(',')}\n#define OSE_VERSION_STR "${VERSION}"\n`);
+  const res = path.join(WORK, 'launcher-res.o');
+  run(`${MINGW}-windres`, ['-I', WORK, '-I', ICON, '-I', src, path.join(src, 'launcher.rc'), '-O', 'coff', '-o', res]);
+  run(`${MINGW}-gcc`, ['-std=c11', '-O2', '-Wall', '-municode', '-mwindows', '-s', '-static-libgcc',
+    path.join(src, 'launcher.c'), res, '-o', exe, '-lcomctl32', '-lshell32']);
+}
+
+/**
+ * A .zip of `dir`, folder and all. Written here rather than with a zip tool so
+ * it is the same on every build machine.
+ */
+function zipFolder(dir, zipPath) {
+  const crcTable = Array.from({ length: 256 }, (_, n) => {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1;
+    return c >>> 0;
+  });
+  const crc32 = (buf) => {
+    let c = 0xFFFFFFFF;
+    for (const b of buf) c = crcTable[(c ^ b) & 0xFF] ^ (c >>> 8);
+    return (c ^ 0xFFFFFFFF) >>> 0;
+  };
+  const now = new Date();
+  const time = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+  const date = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+  const parts = [], central = [];
+  let offset = 0;
+  const add = (name, data) => {
+    const isDir = data === null;
+    const raw = isDir ? Buffer.alloc(0) : data;
+    const body = isDir ? raw : zlib.deflateRawSync(raw, { level: 9 });
+    const nameBuf = Buffer.from(name, 'utf8');
+    const crc = crc32(raw);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(0x04034b50, 0); local.writeUInt16LE(20, 4); local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(isDir ? 0 : 8, 8); local.writeUInt16LE(time, 10); local.writeUInt16LE(date, 12);
+    local.writeUInt32LE(crc, 14); local.writeUInt32LE(body.length, 18); local.writeUInt32LE(raw.length, 22);
+    local.writeUInt16LE(nameBuf.length, 26); local.writeUInt16LE(0, 28);
+    const entry = Buffer.alloc(46);
+    entry.writeUInt32LE(0x02014b50, 0); entry.writeUInt16LE(20, 4); entry.writeUInt16LE(20, 6);
+    entry.writeUInt16LE(0x0800, 8); entry.writeUInt16LE(isDir ? 0 : 8, 10); entry.writeUInt16LE(time, 12);
+    entry.writeUInt16LE(date, 14); entry.writeUInt32LE(crc, 16); entry.writeUInt32LE(body.length, 20);
+    entry.writeUInt32LE(raw.length, 24); entry.writeUInt16LE(nameBuf.length, 28);
+    entry.writeUInt32LE(isDir ? 0x10 : 0, 38); entry.writeUInt32LE(offset, 42);
+    parts.push(local, nameBuf, body);
+    central.push(entry, nameBuf);
+    offset += local.length + nameBuf.length + body.length;
+  };
+  (function walk(d, prefix) {
+    add(`${prefix}/`, null);
+    for (const e of fs.readdirSync(d, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const p = path.join(d, e.name);
+      if (e.isDirectory()) walk(p, `${prefix}/${e.name}`);
+      else add(`${prefix}/${e.name}`, fs.readFileSync(p));
+    }
+  })(dir, path.basename(dir));
+  const cd = Buffer.concat(central);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(central.length / 2, 8); end.writeUInt16LE(central.length / 2, 10);
+  end.writeUInt32LE(cd.length, 12); end.writeUInt32LE(offset, 16);
+  fs.writeFileSync(zipPath, Buffer.concat([...parts, cd, end]));
+}
+
 const out = [];
 
 /* ---------- Windows ---------- */
 if (targets.includes('win')) {
   console.log('\nWindows');
-  const exe = path.join(DIST, `${NAME}-${VERSION}-windows-x64.exe`);
-  await nodeBinary('win', 'x64', exe);
-  inject(exe);
-  await brandWindowsExe(exe);
-  out.push(exe);
+  // One folder: the window people open, and the server it runs beside it.
+  const dir = path.join(WORK, NAME);
+  fs.mkdirSync(dir, { recursive: true });
+  const server = path.join(dir, 'ose-server.exe');
+  await nodeBinary('win', 'x64', server);
+  inject(server);
+  await brandWindowsExe(server, { description: `${NAME} server`, filename: 'ose-server.exe' });
+  windowsLauncher(path.join(dir, `${NAME}.exe`));
+  const zip = path.join(DIST, `${NAME}-${VERSION}-windows-x64.zip`);
+  zipFolder(dir, zip);
+  out.push(zip);
 }
 
 /* ---------- Linux ---------- */
@@ -235,17 +325,19 @@ if (targets.includes('mac')) {
   const server = path.join(macos, 'ose-server');
   run('lipo', ['-create', ...slices, '-output', server]);
 
-  // The server is a console program: it prints its addresses and stops with
-  // Ctrl+C. So the app's job is to open it in a Terminal window.
-  const launcher = path.join(macos, NAME);
-  fs.writeFileSync(launcher, [
-    '#!/bin/bash',
-    '# Opens the OpenStatsEngine server in a Terminal window.',
-    'HERE="$(cd "$(dirname "$0")" && pwd)"',
-    'open -a Terminal "$HERE/ose-server"',
-    ''
-  ].join('\n'));
-  fs.chmodSync(launcher, 0o755);
+  // The app itself is the menu bar icon (build/mac): it runs the server and
+  // shows its output in a window of its own, instead of in Terminal.
+  const launcherSlices = [];
+  for (const [arch, triple] of [['arm64', 'arm64-apple-macos11'], ['x64', 'x86_64-apple-macos11']]) {
+    const bin = path.join(WORK, `launcher-${arch}`);
+    run('xcrun', ['swiftc', '-O', '-swift-version', '5', '-parse-as-library', '-target', triple,
+      path.join(ROOT, 'build', 'mac', 'OpenStatsEngine.swift'), '-o', bin]);
+    launcherSlices.push(bin);
+  }
+  run('lipo', ['-create', ...launcherSlices, '-output', path.join(macos, NAME)]);
+  for (const f of ['MenuBarIcon.png', 'MenuBarIcon@2x.png']) {
+    fs.copyFileSync(path.join(ICON, f), path.join(resources, f));
+  }
 
   // macOS wants bundle versions purely numeric, so "2.0.0-beta1" goes in as
   // 2.0.0 there and in full in the info string.
@@ -264,6 +356,8 @@ if (targets.includes('mac')) {
   <key>CFBundleIconFile</key><string>icon</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <!-- A menu bar app: no Dock icon until its console window is open. -->
+  <key>LSUIElement</key><true/>
 </dict>
 </plist>
 `);

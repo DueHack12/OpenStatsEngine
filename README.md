@@ -46,8 +46,10 @@ publishes the stats as XML over HTTP — no SMB, no shared folders, no cloud.
 
 **Download the app** from the
 [latest release](https://github.com/DueHack12/OpenStatsEngine/releases/latest):
-`.exe` for Windows, `.zip` with a `.app` inside for macOS. Nothing else to
-install. The first launch asks you to confirm you trust it; the
+`.zip` for Windows (extract it, open `OpenStatsEngine.exe`), `.zip` with a
+`.app` inside for macOS. On Windows it is a window in the taskbar; on a Mac it
+lives in the menu bar. Nothing else to install. The first launch asks you to
+confirm you trust it; the
 [manual](docs/MANUAL.md#quick-start) has the clicks for each system.
 
 **Or run from source.** No dependencies, no build step. You need

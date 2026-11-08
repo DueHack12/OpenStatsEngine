@@ -33,12 +33,27 @@ It needs nothing else installed, not even Node.
 
 | Platform | Download | Start it |
 |---|---|---|
-| Windows | `OpenStatsEngine-<version>-windows-x64.exe` | Double-click it |
+| Windows | `OpenStatsEngine-<version>-windows-x64.zip` | Right-click → **Extract All**, then open **OpenStatsEngine.exe** in the folder |
 | macOS (Apple silicon or Intel) | `OpenStatsEngine-<version>-macos.zip` | Unzip, drag **OpenStatsEngine** to Applications, open it |
 | Linux | `OpenStatsEngine-<version>-linux-x64.tar.gz` | `./openstatsengine` |
 
-The app opens a console window, which is the server. Leave it open during the
-game; closing it stops the server. It also opens the entry page in your browser.
+The app starts the server and opens the entry page in your browser.
+
+- **Windows:** the OpenStatsEngine window, with the logo in the taskbar, is the
+  server. It shows the server's output and has buttons to open the entry page,
+  copy the address for phones and tablets, and restart. Leave it open during
+  the game (minimise it if you like); closing it stops the server. Keep the
+  two files in the folder together: `OpenStatsEngine.exe` runs
+  `ose-server.exe`. To pin it, right-click its taskbar button → **Pin to
+  taskbar**.
+- **macOS:** the app lives in the menu bar, as the logo. Its menu opens the
+  entry page, the announcer view and the feed monitor, copies the address for
+  phones and tablets, and restarts the server. **Show Console** opens a window
+  with the server's output. Closing that window leaves the server running;
+  **Quit OpenStatsEngine** in the menu stops it. The icon is dimmed while the
+  server is not running, and if it ever stops on its own the console opens to
+  say why. Can't see the icon (a full menu bar, or a MacBook's notch)? Open the
+  app again from Applications and the console comes up.
 
 > **First launch: the apps are not signed with a paid developer certificate,**
 > so the operating system asks once whether you trust them.
@@ -47,14 +62,14 @@ game; closing it stops the server. It also opens the entry page in your browser.
 > - **macOS:** right-click **OpenStatsEngine** in Applications → **Open** →
 >   **Open**. On macOS 15 and later, if there is no Open button: try to open it
 >   once, then go to **System Settings → Privacy & Security** and click
->   **Open Anyway**. If Terminal then says the server "cannot be opened", run
+>   **Open Anyway**. If it then says the server "cannot be opened", run
 >   `xattr -dr com.apple.quarantine /Applications/OpenStatsEngine.app` once.
 
 **Where the data goes in the app:** `Documents/OpenStatsEngine` in your home
-folder. The exception is a folder called `data` sitting next to the `.exe` (or
+folder. The exception is a folder called `data` sitting next to the `.exe`s (or
 Linux binary): if there is one, the app uses it. That is how you run it from a
-USB stick, and how you move a source install over: copy its `data` folder next
-to the `.exe`, or into `Documents` renamed to `OpenStatsEngine`. To keep it
+USB stick, and how you move a source install over: copy its `data` folder into
+the OpenStatsEngine folder, or into `Documents` renamed to `OpenStatsEngine`. To keep it
 anywhere else, such as a Google Drive folder, see
 [Data folder](#data-folder--google-drive-onedrive-dropbox).
 
@@ -96,8 +111,8 @@ node server.js --port 8080 --data "D:\Broadcast\stats-2026"
 `--data` is where everything is stored for that run. To change it for good,
 use **Setup → Data Folder** instead (see
 [Data folder](#data-folder--google-drive-onedrive-dropbox)). The apps take the
-same options: on Windows, make a shortcut to the `.exe` and add them to the end
-of its **Target**.
+same options: on Windows, make a shortcut to `OpenStatsEngine.exe` and add them
+to the end of its **Target**; on a Mac, `open -a OpenStatsEngine --args --port 9000`.
 
 | Option | |
 |---|---|
@@ -116,9 +131,12 @@ If there is, the console says so and a green **⬆ v1.x.y** link appears in the
 top bar of the entry page, pointing at the release. Without internet it just
 stays quiet. Your teams, rosters and games are never touched by an update.
 
-- **App (.exe / .app):** download the new version from the link and use it in
-  place of the old one. On a Mac, drag the new app into Applications and choose
-  **Replace**. Data lives outside the app, so nothing needs moving.
+- **App:** download the new version from the link and use it in place of the
+  old one. On Windows, close OpenStatsEngine, extract the new zip and replace the
+  old folder with it (move your `data` folder across first if you keep one
+  there). On a Mac, quit OpenStatsEngine from its menu bar icon, drag the new
+  app into Applications and choose **Replace**. Data in `Documents` lives
+  outside the app, so nothing needs moving.
 - **Git checkout:** the start scripts check for updates themselves and ask
   *Update now? [y/N]*. Answer **Y** and they pull before starting. They start the
   current version after 15 seconds with no answer, so a machine left unattended
@@ -173,7 +191,12 @@ node build/package.mjs            # this platform
 node build/package.mjs win linux  # Windows and Linux can be built anywhere
 ```
 
-The macOS app has to be built on a Mac. Output goes to `dist/`. The app icon
+The macOS app has to be built on a Mac. The Windows app's window is compiled
+with mingw-w64 (`brew install mingw-w64` on a Mac, `apt install
+gcc-mingw-w64-x86-64` on Ubuntu). The two launchers, the taskbar window and the
+menu bar app, are in `build/windows/` and `build/mac/`; pushing a change to them
+on a branch runs **Check apps**, which opens each app on a real Windows machine
+and Mac and checks it starts and stops the server. Output goes to `dist/`. The app icon
 lives in `build/icon/` (`icon-1024.png` for macOS, `icon.ico` for Windows) and
 `public/icon.svg` for the browser.
 
@@ -197,9 +220,10 @@ the cloud as you go.
    - **Data one folder down:** pointing at a folder that holds a source
      install? Its data is in `data` inside it. Check Folder finds it and offers
      it as a button.
-   - **Cannot be read:** on a Mac, Terminal (which OpenStatsEngine runs in)
-     needs access to Google Drive: **System Settings → Privacy & Security →
-     Files and Folders**, or add Terminal under **Full Disk Access**.
+   - **Cannot be read:** on a Mac, OpenStatsEngine needs access to Google
+     Drive: **System Settings → Privacy & Security → Files and Folders**, or
+     add OpenStatsEngine under **Full Disk Access**. (Started from source with
+     `start-mac.command`, it is Terminal that needs the access.)
    - **Empty or new:** tick **Copy the data in use now** to bring your teams and
      games along, or leave it unticked to start fresh.
 3. **Use This Folder**, then close OpenStatsEngine and open it again. The switch

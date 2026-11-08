@@ -70,6 +70,10 @@ jobs:
             && node test/v7.test.js && node test/v8.test.js && node test/mqtt.test.js && node test/announcer.test.js \
             && node test/backup.test.js && node test/update.test.js && node test/datadir.test.js && node test/real-data.test.js
 
+      - name: Install mingw-w64 (for the Windows app's window)
+        if: steps.rel.outputs.skip != 'true'
+        run: brew install mingw-w64
+
       - name: Package
         if: steps.rel.outputs.skip != 'true'
         run: node build/package.mjs all

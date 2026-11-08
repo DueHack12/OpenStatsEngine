@@ -1,0 +1,98 @@
+# Build the apps and start each one the way a person would, on a real Mac and a
+# real Windows machine, before anything is released: the menu bar app and the
+# Windows window are native code that only those machines can build and run.
+#
+# Runs on pushes to any branch but main that touch the apps, and from the
+# Actions tab. A release builds the same way (release.yml).
+name: Check apps
+
+on:
+  push:
+    branches-ignore: [main]
+    paths:
+      - build/**
+      - server.js
+      - src/runtime.js
+      - .github/workflows/check-apps.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Install mingw-w64
+        run: brew install mingw-w64
+      - name: Package
+        run: node build/package.mjs all
+
+      - name: Open the Mac app, then quit it
+        run: |
+          mkdir -p "$RUNNER_TEMP/ose" && cd "$RUNNER_TEMP/ose"
+          unzip -q "$GITHUB_WORKSPACE"/dist/*-macos.zip
+          APP="$RUNNER_TEMP/ose/OpenStatsEngine.app"
+          test -x "$APP/Contents/MacOS/OpenStatsEngine" || { echo "::error::No launcher in the app"; exit 1; }
+          test -f "$APP/Contents/Resources/MenuBarIcon@2x.png" || { echo "::error::No menu bar icon in the app"; exit 1; }
+          codesign --verify --deep --strict "$APP"
+          open -n "$APP" --args --port 8782 --data "$RUNNER_TEMP/ose-data" --no-backup --no-open --no-update-check
+          for i in $(seq 30); do curl -sf localhost:8782/api/config >/dev/null && break; sleep 1; done
+          curl -sf localhost:8782/api/config >/dev/null || { echo "::error::The app did not start the server"; exit 1; }
+          LAUNCHER=$(pgrep -f "OpenStatsEngine.app/Contents/MacOS/OpenStatsEngine")
+          pgrep -f "OpenStatsEngine.app/Contents/MacOS/ose-server" >/dev/null || { echo "::error::No server process"; exit 1; }
+          screencapture -x "$GITHUB_WORKSPACE/dist/screen.png" || true
+          # Quitting the app (as logging out does) must stop the server too.
+          kill -TERM $LAUNCHER
+          for i in $(seq 15); do pgrep -f "OpenStatsEngine.app/Contents/MacOS/" >/dev/null || break; sleep 1; done
+          if pgrep -fl "OpenStatsEngine.app/Contents/MacOS/"; then echo "::error::The app or its server is still running after quitting"; exit 1; fi
+          if curl -sf localhost:8782/api/config >/dev/null; then echo "::error::The server still answers after quitting"; exit 1; fi
+          echo "The Mac app started the server and stopped it on quit."
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: apps
+          path: |
+            dist/*-windows-x64.zip
+            dist/screen.png
+          if-no-files-found: ignore
+          retention-days: 7
+
+  windows:
+    needs: mac
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: apps
+          path: apps
+      - name: Open the Windows app, then close it
+        shell: pwsh
+        run: |
+          $zip = Get-ChildItem -Recurse apps -Filter '*-windows-x64.zip' | Select-Object -First 1
+          Expand-Archive $zip.FullName -DestinationPath "$env:RUNNER_TEMP\ose"
+          $exe = "$env:RUNNER_TEMP\ose\OpenStatsEngine\OpenStatsEngine.exe"
+          if (-not (Test-Path "$env:RUNNER_TEMP\ose\OpenStatsEngine\ose-server.exe")) { Write-Error 'No ose-server.exe in the zip'; exit 1 }
+          $app = Start-Process $exe -PassThru -ArgumentList '--port','8782','--data',"$env:RUNNER_TEMP\ose-data",'--no-backup','--no-open','--no-update-check'
+          $up = $false
+          foreach ($i in 1..30) {
+            try { Invoke-WebRequest http://localhost:8782/api/config -UseBasicParsing -TimeoutSec 2 | Out-Null; $up = $true; break } catch { Start-Sleep 1 }
+          }
+          if (-not $up) { Write-Error 'The app did not start the server'; exit 1 }
+          if (-not (Get-Process ose-server -ErrorAction SilentlyContinue)) { Write-Error 'No server process'; exit 1 }
+          $app.Refresh()
+          "Window title: '$($app.MainWindowTitle)'"
+          if ($app.MainWindowTitle -ne 'OpenStatsEngine') { Write-Warning 'The window title is not OpenStatsEngine (or the runner has no desktop)' }
+          # Closing the window must stop the server too.
+          if (-not $app.CloseMainWindow()) { Write-Warning 'No window to close; ending the app instead'; Stop-Process $app.Id }
+          foreach ($i in 1..15) {
+            if (-not (Get-Process OpenStatsEngine, ose-server -ErrorAction SilentlyContinue)) { break }
+            Start-Sleep 1
+          }
+          if (Get-Process OpenStatsEngine, ose-server -ErrorAction SilentlyContinue) { Write-Error 'The app or its server is still running after closing'; exit 1 }
+          "The Windows app started the server and stopped it on close."

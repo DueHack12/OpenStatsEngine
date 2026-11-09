@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StatPop</title>
+<link rel="icon" href="icon.svg">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><img src="icon.svg" alt="" width="26" height="26"> StatPop</div>
+  <div class="pills">
+    <span class="pill" id="osePill" title="OpenStatsEngine"><i></i><span>OSE</span></span>
+    <span class="pill" id="vmixPill" title="vMix"><i></i><span>vMix</span></span>
+  </div>
+  <div class="actions">
+    <label class="live" title="Push changes to vMix automatically as stats update">
+      <input type="checkbox" id="live"><span>Live</span>
+    </label>
+    <button id="sendBtn" class="primary">Send to vMix</button>
+    <div class="overlay">
+      <select id="ovl" title="Overlay channel">
+        <option value="1">OVL 1</option><option value="2">OVL 2</option>
+        <option value="3">OVL 3</option><option value="4">OVL 4</option>
+      </select>
+      <button id="ovlIn" class="go">In</button>
+      <button id="ovlOut">Out</button>
+    </div>
+    <button id="settingsBtn" class="ghost" aria-expanded="false">Settings</button>
+  </div>
+</header>
+
+<div id="toast" role="status" aria-live="polite"></div>
+
+<section id="settings" class="settings" hidden>
+  <div class="grid">
+    <fieldset>
+      <legend>OpenStatsEngine</legend>
+      <label>Address <input id="oseUrl" placeholder="http://localhost:8080"></label>
+      <label>Game
+        <select id="oseGame"><option value="">Follow the active game</option></select>
+      </label>
+      <p class="hint" id="oseHint"></p>
+    </fieldset>
+    <fieldset>
+      <legend>vMix</legend>
+      <label>Address <input id="vmixUrl" placeholder="http://localhost:8088"></label>
+      <label>Title input
+        <span class="row-inline">
+          <select id="vmixInput"><option value="">— choose —</option></select>
+          <button id="vmixRefresh" class="ghost small" title="Re-read vMix inputs">↻</button>
+        </span>
+      </label>
+      <p class="hint" id="vmixHint"></p>
+    </fieldset>
+    <fieldset>
+      <legend>Title field names</legend>
+      <label>Header <input id="fHeader"></label>
+      <label>Score, left team <input id="fScoreA"></label>
+      <label>Score, right team <input id="fScoreB"></label>
+      <label>Row label <input id="fLabel"></label>
+      <label>Row value, left <input id="fValA"></label>
+      <label>Row value, right <input id="fValB"></label>
+      <p class="hint">{n} is the row number. Separate several fields with commas.</p>
+      <p class="warn" id="missing" hidden></p>
+    </fieldset>
+    <fieldset>
+      <legend>Behaviour</legend>
+      <label class="check"><input type="checkbox" id="sendScore"> Send team scores</label>
+      <label class="check"><input type="checkbox" id="uppercase"> Labels in CAPITALS</label>
+      <label>Rows on the graphic <input id="rowCount" type="number" min="1" max="12"></label>
+      <label>Live update every (seconds) <input id="interval" type="number" min="0.5" max="30" step="0.5"></label>
+    </fieldset>
+  </div>
+</section>
+
+<main>
+  <section class="editor">
+    <div class="card header-card">
+      <label class="lbl" for="header">Header</label>
+      <input id="header" class="big" placeholder="TEAM STATS">
+      <p class="hint">Tokens: {A} {B} team abbreviations, {ANAME} {BNAME}, {AMASCOT} {BMASCOT}, {PERIOD}</p>
+      <div class="teams">
+        <div class="team" id="teamA"><span class="sw"></span><b>—</b><small>left</small></div>
+        <button id="swap" class="ghost small" title="Swap which team is on the left">⇄ Swap</button>
+        <div class="team right" id="teamB"><small>right</small><b>—</b><span class="sw"></span></div>
+      </div>
+    </div>
+
+    <div class="rows-head">
+      <span>#</span><span>Stat — type it in plain words</span><span>On-air label</span>
+      <span class="num" id="colA">Left</span><span class="num" id="colB">Right</span><span></span>
+    </div>
+    <ol id="rows" class="rows"></ol>
+
+    <div class="card presets">
+      <label class="lbl" for="presetSel">Presets</label>
+      <div class="row-inline">
+        <select id="presetSel"><option value="">— saved sets —</option></select>
+        <button id="presetLoad" class="ghost">Load</button>
+        <button id="presetDel" class="ghost danger">Delete</button>
+        <span class="sep"></span>
+        <input id="presetName" placeholder="Name this set">
+        <button id="presetSave" class="ghost">Save</button>
+      </div>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div class="preview-wrap">
+      <div class="lbl">Preview <small id="stale"></small></div>
+      <div class="gfx" id="gfx">
+        <div class="gfx-head" id="pvHeader"></div>
+        <div class="gfx-teams">
+          <div class="gfx-logo" id="pvALogo"></div>
+          <div class="gfx-score light" id="pvAScore"></div>
+          <div class="gfx-score" id="pvBScore"></div>
+          <div class="gfx-logo" id="pvBLogo"></div>
+        </div>
+        <div id="pvRows"></div>
+      </div>
+      <p class="hint" id="gameLine"></p>
+    </div>
+    <details class="card">
+      <summary>Fields sent to vMix</summary>
+      <table class="fields"><tbody id="fieldsBody"></tbody></table>
+    </details>
+    <details class="card">
+      <summary>Every stat OSE has for this game</summary>
+      <input id="browseFilter" placeholder="Filter…">
+      <table class="fields browse"><tbody id="browseBody"></tbody></table>
+    </details>
+  </aside>
+</main>
+
+<datalist id="statList"></datalist>
+
+<template id="rowTpl">
+  <li class="row">
+    <span class="n"></span>
+    <div class="stat">
+      <input class="q" list="statList" placeholder="e.g. Total Yards" autocomplete="off" spellcheck="false">
+      <div class="match">
+        <span class="chip"></span>
+        <select class="alt" title="Pick a different stat"></select>
+      </div>
+    </div>
+    <input class="label" placeholder="same as stat">
+    <div class="val va"><input class="a" inputmode="text"><button class="reset ra" title="Back to OSE value" hidden>↺</button></div>
+    <div class="val vb"><input class="b" inputmode="text"><button class="reset rb" title="Back to OSE value" hidden>↺</button></div>
+    <div class="tools">
+      <button class="up ghost small" title="Move up">↑</button>
+      <button class="down ghost small" title="Move down">↓</button>
+      <button class="clear ghost small" title="Clear row">✕</button>
+    </div>
+  </li>
+</template>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

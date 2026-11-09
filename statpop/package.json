@@ -1,0 +1,13 @@
+{
+  "name": "statpop",
+  "version": "1.0.0",
+  "description": "Fills a vMix GT team-comparison graphic from OpenStatsEngine — type a stat in plain words and it finds it",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/statpop.test.js"
+  },
+  "engines": { "node": ">=18" },
+  "private": true
+}

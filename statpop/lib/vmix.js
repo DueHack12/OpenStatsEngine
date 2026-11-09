@@ -45,7 +45,7 @@ export function parseState(xml) {
     const a = attrs(m[1]);
     const body = m[3] || '';
     const fields = [];
-    for (const t of body.matchAll(/<(text|image)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1>)/g)) {
+    for (const t of body.matchAll(/<(text|image|color)\b([^>]*?)(?:\/>|>([\s\S]*?)<\/\1>)/g)) {
       const ta = attrs(t[2]);
       fields.push({ kind: t[1], name: ta.name, index: ta.index, value: decode(t[3] || '') });
     }

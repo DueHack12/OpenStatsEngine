@@ -83,6 +83,26 @@ On Windows you can put these on the end of the `node server.js` line in
 **Left/right:** Team A (the `ValA` column) is the away team by default. **⇄ Swap**
 flips it.
 
+### Score colours
+
+Under the header, each team has two settings:
+
+- **Score box:** *Team colour* uses the team's colour from OSE (its primary
+  colour in the Teams tab). *Custom* uses the colour you pick. *Don't change*
+  leaves the title as designed. Clicking the colour swatch switches to Custom.
+- **Score text:** *Auto* picks black or white, whichever reads better on the
+  box. *Custom* uses the colour you pick. *Don't change* leaves it alone.
+
+Colours stay with the team, not the side, so Swap moves them too.
+
+For box colours, StatPop needs the names of the shapes behind each score:
+**Settings → Title field names → Score box colour**. They're in vMix's Title
+Editor under the **Color** tab, and look like `Rectangle3.Fill.Color`. vMix 25
+and later list them, so StatPop suggests them as you type and warns about any
+name the title doesn't have. Text colour goes to the score fields that are
+already set up. In GT Title Designer, a shape must not be set to *Hidden* in its
+Data settings, or vMix won't offer its colour.
+
 ## Game night
 
 - **Type a stat in each row.** A green tick shows what it found and the

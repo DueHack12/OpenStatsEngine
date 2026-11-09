@@ -59,10 +59,13 @@
       <label>Header <input id="fHeader"></label>
       <label>Score, left team <input id="fScoreA"></label>
       <label>Score, right team <input id="fScoreB"></label>
+      <label>Score box colour, left team <input id="fBoxA" list="colorFieldList" placeholder="e.g. Rectangle3.Fill.Color"></label>
+      <label>Score box colour, right team <input id="fBoxB" list="colorFieldList" placeholder="e.g. Rectangle4.Fill.Color"></label>
       <label>Row label <input id="fLabel"></label>
       <label>Row value, left <input id="fValA"></label>
       <label>Row value, right <input id="fValB"></label>
-      <p class="hint">{n} is the row number. Separate several fields with commas.</p>
+      <p class="hint">{n} is the row number. Separate several fields with commas. Box colours use the
+        shape names from the title's <b>Color</b> tab; the score text colour goes to the score fields above.</p>
       <p class="warn" id="missing" hidden></p>
     </fieldset>
     <fieldset>
@@ -86,6 +89,53 @@
         <button id="swap" class="ghost small" title="Swap which team is on the left">⇄ Swap</button>
         <div class="team right" id="teamB"><small>right</small><b>—</b><span class="sw"></span></div>
       </div>
+      <div class="colors">
+        <div class="cteam" data-col="A">
+          <label>Score box
+            <span class="row-inline">
+              <select class="boxMode">
+                <option value="team">Team colour</option>
+                <option value="custom">Custom</option>
+                <option value="off">Don't change</option>
+              </select>
+              <input type="color" class="boxColor" title="Pick a box colour">
+            </span>
+          </label>
+          <label>Score text
+            <span class="row-inline">
+              <select class="textMode">
+                <option value="auto">Auto (black/white)</option>
+                <option value="custom">Custom</option>
+                <option value="off">Don't change</option>
+              </select>
+              <input type="color" class="textColor" title="Pick a text colour">
+            </span>
+          </label>
+        </div>
+        <div class="cteam" data-col="B">
+          <label>Score box
+            <span class="row-inline">
+              <select class="boxMode">
+                <option value="team">Team colour</option>
+                <option value="custom">Custom</option>
+                <option value="off">Don't change</option>
+              </select>
+              <input type="color" class="boxColor" title="Pick a box colour">
+            </span>
+          </label>
+          <label>Score text
+            <span class="row-inline">
+              <select class="textMode">
+                <option value="auto">Auto (black/white)</option>
+                <option value="custom">Custom</option>
+                <option value="off">Don't change</option>
+              </select>
+              <input type="color" class="textColor" title="Pick a text colour">
+            </span>
+          </label>
+        </div>
+      </div>
+      <p class="warn" id="colorWarn" hidden>Box colours need the shapes' names: Settings → Title field names → Score box colour.</p>
     </div>
 
     <div class="rows-head">
@@ -135,6 +185,7 @@
 </main>
 
 <datalist id="statList"></datalist>
+<datalist id="colorFieldList"></datalist>
 
 <template id="rowTpl">
   <li class="row">

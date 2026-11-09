@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { buildCatalog, search, tokens } from '../lib/catalog.js';
-import { compose, defaultSettings, mergeSettings, normalizeUrl } from '../lib/compose.js';
+import { compose, defaultSettings, mergeSettings, normalizeUrl, hex, contrastText } from '../lib/compose.js';
 import { parseState, findInput } from '../lib/vmix.js';
 
 const read = (f) => JSON.parse(fs.readFileSync(new URL(`./fixtures/${f}`, import.meta.url)));
@@ -48,7 +48,7 @@ const base = mergeSettings(defaultSettings(), {
     { query: 'Kanye', a: '7', b: '9' }, {}]
 });
 const c = compose(base, game, cat);
-const F = Object.fromEntries(c.fields.map((f) => [f.field, f.value]));
+const F = Object.fromEntries(c.fields.filter((f) => f.fn === 'SetText').map((f) => [f.field, f.value]));
 t('away is on the left by default', () => {
   assert.equal(F['Row1ValA.Text'], String(game.teams.away.total_yards));
   assert.equal(F['Row1ValB.Text'], String(game.teams.home.total_yards));
@@ -86,16 +86,55 @@ t('OSE on another computer: bare IP gets http:// and port 8080', () => {
   assert.equal(mergeSettings(defaultSettings(), { ose: { url: '10.0.0.7' } }).ose.url, 'http://10.0.0.7:8080');
 });
 
+console.log('\n== colours ==');
+t('hex colours are tidied', () => {
+  assert.equal(hex('1e40af'), '#1E40AF'); assert.equal(hex('#ff0'), '#FFFF00');
+  assert.equal(hex('#80FF0000'), '#80FF0000'); assert.equal(hex('red'), '');
+});
+t('auto text is white on dark, black on light', () => {
+  assert.equal(contrastText('#1E40AF'), '#FFFFFF'); assert.equal(contrastText('#991B1B'), '#FFFFFF');
+  assert.equal(contrastText('#FFFFFF'), '#000000'); assert.equal(contrastText('#FACC15'), '#000000');
+});
+const withBoxes = mergeSettings(base, { fields: { boxA: 'BoxA.Fill.Color', boxB: 'BoxB.Fill.Color' } });
+const colourCalls = (st) => compose(st, game, cat).fields.filter((f) => f.fn !== 'SetText');
+t('no box names: no colour calls for boxes', () => {
+  assert.ok(!compose(base, game, cat).fields.some((f) => f.fn === 'SetColor'));
+});
+t('team colour from OSE goes to the box, contrasting text to the score', () => {
+  const calls = colourCalls(withBoxes);
+  const box = calls.find((f) => f.field === 'BoxA.Fill.Color');
+  assert.equal(box.fn, 'SetColor'); assert.equal(box.value, hex(game.teams.away.primaryColor));
+  const txt = calls.find((f) => f.field === 'TeamAScore.Text');
+  assert.equal(txt.fn, 'SetTextColour'); assert.equal(txt.value, contrastText(box.value));
+});
+t('custom colours override, and follow the team on swap', () => {
+  const st = mergeSettings(withBoxes, { colors: { home: { box: 'custom', boxColor: '#00aa44', text: 'custom', textColor: '#ff0' } } });
+  assert.equal(colourCalls(st).find((f) => f.field === 'BoxB.Fill.Color').value, '#00AA44');
+  assert.equal(colourCalls(st).find((f) => f.field === 'TeamBScore.Text').value, '#FFFF00');
+  const swapped = mergeSettings(st, { teamA: 'home' });
+  assert.equal(colourCalls(swapped).find((f) => f.field === 'BoxA.Fill.Color').value, '#00AA44');
+});
+t("\"don't change\" sends nothing", () => {
+  const st = mergeSettings(withBoxes, { colors: { home: { box: 'off', text: 'off' }, away: { box: 'off', text: 'off' } } });
+  assert.equal(colourCalls(st).length, 0);
+});
+t('bad colour values are ignored', () => {
+  const st = mergeSettings(withBoxes, { colors: { away: { box: 'purple', boxColor: 'nope' } } });
+  assert.equal(st.colors.away.box, 'team'); assert.equal(st.colors.away.boxColor, '');
+});
+
 console.log('\n== vMix XML ==');
 const xml = `<vmix><version>29.0.0.49</version><inputs>
 <input key="k1" number="1" type="Colour" title="Black" shortTitle="Black" state="Paused">Black</input>
 <input key="k2" number="2" type="GT" title="stats pop 1.gtzip" shortTitle="stats pop 1.gtzip" state="Paused">x
-<text index="0" name="HeaderTitle.Text">HELLO &amp; WELCOME</text><text index="1" name="Row1Label.Text"/></input>
+<text index="0" name="HeaderTitle.Text">HELLO &amp; WELCOME</text><text index="1" name="Row1Label.Text"/>
+<color index="0" name="ScoreBoxA.Fill.Color">#FFFFFFFF</color></input>
 </inputs><overlays><overlay number="1">2</overlay><overlay number="2" /></overlays></vmix>`;
 const st = parseState(xml);
 t('parses inputs and text fields', () => {
   assert.equal(st.inputs.length, 2);
-  assert.deepEqual(st.inputs[1].fields.map((f) => f.name), ['HeaderTitle.Text', 'Row1Label.Text']);
+  assert.deepEqual(st.inputs[1].fields.map((f) => f.name), ['HeaderTitle.Text', 'Row1Label.Text', 'ScoreBoxA.Fill.Color']);
+  assert.equal(st.inputs[1].fields[2].kind, 'color');
   assert.equal(st.inputs[1].fields[0].value, 'HELLO & WELCOME');
 });
 t('finds input by title, number or key', () => {

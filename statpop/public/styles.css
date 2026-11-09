@@ -98,6 +98,13 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px; pa
 .team { flex: 1; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .team.right { justify-content: flex-end; text-align: right; }
 .team small { color: var(--muted); }
+.colors { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 10px; }
+.cteam { display: grid; gap: 6px; }
+.cteam label { display: grid; gap: 3px; font-size: 12px; color: var(--muted); }
+.cteam select { flex: 1; }
+input[type=color] { width: 42px; height: 34px; padding: 2px; flex: none; cursor: pointer; }
+input[type=color]:disabled { opacity: .35; cursor: default; }
+@media (max-width: 560px) { .colors { grid-template-columns: 1fr; } }
 .team .sw { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #ffffff33; flex: none; }
 
 /* ---- rows */

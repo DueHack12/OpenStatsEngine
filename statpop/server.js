@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { buildCatalog } from './lib/catalog.js';
 import { compose, defaultSettings, mergeSettings, cleanRow, fieldList } from './lib/compose.js';
-import { setText, vmixFunction, vmixState, findInput } from './lib/vmix.js';
+import { vmixFunction, vmixState, findInput } from './lib/vmix.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -117,7 +117,7 @@ async function current() {
 
 /* ---------------------------------------------------------------- vMix */
 
-let lastSent = new Map();           // field -> value vMix last accepted
+let lastSent = new Map();           // "fn|field" -> value vMix last accepted
 let lastSentInput = '';
 let vmixStatus = { ok: null, error: null, lastPush: null, sent: 0 };
 let pushing = false;
@@ -134,11 +134,12 @@ async function push(force = false) {
     if (!c.game && !force) return { skipped: true, reason: 'no game data' };
     let sent = 0;
     const errors = [];
-    for (const { field, value } of c.fields) {
-      if (!force && lastSent.get(field) === value) continue;
+    for (const { field, value, fn = 'SetText' } of c.fields) {
+      const k = `${fn}|${field}`;
+      if (!force && lastSent.get(k) === value) continue;
       try {
-        await setText(settings.vmix.url, input, field, value);
-        lastSent.set(field, value);
+        await vmixFunction(settings.vmix.url, fn, { Input: input, SelectedName: field, Value: value });
+        lastSent.set(k, value);
         sent++;
       } catch (err) {
         errors.push(`${field}: ${niceError(err, 'vMix', settings.vmix.url)}`);
@@ -235,20 +236,32 @@ async function api(req, res, url) {
       const titles = st.inputs.filter((i) => i.fields.some((f) => f.kind === 'text'));
       const sel = findInput(st, settings.vmix.input);
       let missing = [];
+      let colorCheck = false;
       if (sel) {
-        const have = new Set(sel.fields.map((f) => f.name));
+        const names = (kind) => new Set(sel.fields.filter((f) => f.kind === kind).map((f) => f.name));
+        const texts = names('text'), colours = names('color');
+        // Older vMix versions don't list shape colours, so only check them when it does.
+        colorCheck = colours.size > 0;
         const c = compose(settings, null, null);
-        // score fields are only sent with a game, so check them separately
-        const wanted = [...new Set([...c.fields.map((x) => x.field),
-          ...(settings.sendScore ? [...fieldList(settings.fields.scoreA), ...fieldList(settings.fields.scoreB)] : [])])];
-        missing = wanted.filter((f) => !have.has(f));
+        const wanted = new Map(c.fields.map((x) => [x.field, x.fn]));
+        // score fields and team-colour boxes are only sent with a game, so add them here
+        if (settings.sendScore) for (const f of [...fieldList(settings.fields.scoreA), ...fieldList(settings.fields.scoreB)]) wanted.set(f, 'SetText');
+        for (const [side, key] of [['A', 'boxA'], ['B', 'boxB']]) {
+          const team = settings.colors[side === 'A' ? settings.teamA : (settings.teamA === 'home' ? 'away' : 'home')];
+          if (team.box !== 'off') for (const f of fieldList(settings.fields[key])) wanted.set(f, 'SetColor');
+        }
+        missing = [...wanted].filter(([f, fn]) => fn === 'SetColor' ? colorCheck && !colours.has(f) : !texts.has(f)).map(([f]) => f);
       }
       const overlays = st.overlays.map((o) => ({ number: o.number, active: !!sel && o.input === sel.number }));
       return send(res, 200, {
         ok: true, version: st.version,
         inputs: titles.map((i) => ({ key: i.key, number: i.number, title: i.title, type: i.type, fields: i.fields.filter((f) => f.kind === 'text').map((f) => f.name) })),
-        selected: sel ? { key: sel.key, number: sel.number, title: sel.title, fields: sel.fields.map((f) => f.name) } : null,
-        missing, overlays
+        selected: sel ? {
+          key: sel.key, number: sel.number, title: sel.title,
+          fields: sel.fields.filter((f) => f.kind === 'text').map((f) => f.name),
+          colors: sel.fields.filter((f) => f.kind === 'color').map((f) => ({ name: f.name, value: f.value }))
+        } : null,
+        missing, colorCheck, overlays
       });
     } catch (err) {
       return send(res, 200, { ok: false, error: niceError(err, 'vMix', settings.vmix.url), inputs: [] });

@@ -167,7 +167,14 @@ function paintPreview() {
   $('#pvBLogo').textContent = B?.abbrev || 'B';
   $('#pvALogo').style.background = A?.color || '';
   $('#pvBLogo').style.background = B?.color || '';
-  $('#pvBScore').style.background = B?.color || '';
+  // Score boxes: show what vMix will get, or the title's own look when a colour isn't sent.
+  for (const [col, id, dBg, dFg, boxF] of [['A', '#pvAScore', '#ffffff', '#000000', 'boxA'], ['B', '#pvBScore', '#991b1b', '#ffffff', 'boxB']]) {
+    const c = P.colors?.[col] || {};
+    const el = $(id);
+    el.style.background = (S.fields[boxF] && c.box) || dBg;
+    el.style.color = c.text || dFg;
+  }
+  paintColors();
   $('#pvRows').innerHTML = P.rows.map((r) => `
     <div class="gfx-row">
       <span class="${r.overA ? 'over' : ''}">${esc(r.valA)}</span>
@@ -216,6 +223,67 @@ async function refresh() {
   } catch { /* server restarting */ }
 }
 
+/* -------------------------------------------------------------- colours */
+
+const sideOf = (col) => (col === 'A' ? S.teamA : (S.teamA === 'home' ? 'away' : 'home'));
+
+function paintColors() {
+  for (const el of $$('.cteam')) {
+    const col = el.dataset.col;
+    const side = sideOf(col);
+    const c = S.colors[side];
+    const now = P?.colors?.[col] || {};
+    const team = P?.[col];
+    const set = (sel, v) => { const x = $(sel, el); if (document.activeElement !== x && v) x.value = v; };
+    set('.boxMode', c.box);
+    set('.textMode', c.text);
+    // the pickers show the colour in use, so "Custom" starts from it
+    set('.boxColor', (now.box || c.boxColor || now.teamColor || '#808080').slice(-6).replace(/^/, '#').toLowerCase());
+    set('.textColor', (now.text || c.textColor || '#ffffff').slice(-6).replace(/^/, '#').toLowerCase());
+    $('.boxColor', el).disabled = c.box === 'off';
+    $('.textColor', el).disabled = c.text === 'off';
+    $('.boxMode option[value=team]', el).textContent = `Team colour${!P?.game || now.teamColor ? '' : ' (none in OSE)'}`;
+    el.title = team ? `${team.abbrev || team.name} (${side})` : side;
+  }
+  const needs = ['A', 'B'].some((col) => S.colors[sideOf(col)].box !== 'off' && !S.fields[col === 'A' ? 'boxA' : 'boxB']);
+  $('#colorWarn').hidden = !needs;
+}
+
+function queueColor(col, patch) {
+  const side = sideOf(col);
+  Object.assign(S.colors[side], patch);
+  pending.colors = pending.colors || {};
+  pending.colors[side] = { ...(pending.colors[side] || {}), ...patch };
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(flush, 250);
+  paintColors();
+}
+
+function wireColors() {
+  for (const el of $$('.cteam')) {
+    const col = el.dataset.col;
+    $('.boxMode', el).addEventListener('change', (e) => {
+      const patch = { box: e.target.value };
+      if (e.target.value === 'custom' && !S.colors[sideOf(col)].boxColor) patch.boxColor = $('.boxColor', el).value;
+      queueColor(col, patch);
+    });
+    $('.textMode', el).addEventListener('change', (e) => {
+      const patch = { text: e.target.value };
+      if (e.target.value === 'custom' && !S.colors[sideOf(col)].textColor) patch.textColor = $('.textColor', el).value;
+      queueColor(col, patch);
+    });
+    // picking a colour means "use this one"
+    $('.boxColor', el).addEventListener('input', (e) => {
+      $('.boxMode', el).value = 'custom';
+      queueColor(col, { box: 'custom', boxColor: e.target.value });
+    });
+    $('.textColor', el).addEventListener('input', (e) => {
+      $('.textMode', el).value = 'custom';
+      queueColor(col, { text: 'custom', textColor: e.target.value });
+    });
+  }
+}
+
 /* ------------------------------------------------------------- catalog */
 
 let catalog = [];
@@ -249,6 +317,8 @@ function fillSettings() {
   $('#fLabel').value = S.fields.label;
   $('#fValA').value = S.fields.valA;
   $('#fValB').value = S.fields.valB;
+  $('#fBoxA').value = S.fields.boxA;
+  $('#fBoxB').value = S.fields.boxB;
   $('#sendScore').checked = S.sendScore;
   $('#uppercase').checked = S.uppercaseLabels;
   $('#rowCount').value = S.rowCount;
@@ -292,11 +362,21 @@ async function loadVmix() {
     hint.textContent = `vMix ${r.version} · ${r.inputs.length} title input(s)` +
       (r.selected ? ` · using #${r.selected.number}` : S.vmix.input ? ' · selected input not found' : '');
   }
+  // shape colour names for the box-colour fields
+  const dl = $('#colorFieldList');
+  dl.innerHTML = '';
+  for (const c of r.selected?.colors || []) dl.append(new Option(c.name, c.name));
+  if (r.ok && r.selected) {
+    hint.textContent += r.colorCheck
+      ? ` · ${r.selected.colors.length} colour field(s)`
+      : " · this vMix doesn't list shape colours, so box names can't be checked";
+  }
   const miss = $('#missing');
   miss.hidden = !(r.ok && r.selected && r.missing.length);
   if (!miss.hidden) {
     miss.textContent = `This title has no field called: ${r.missing.join(', ')}. ` +
-      `Its fields are: ${r.selected.fields.join(', ')}`;
+      `Its text fields are: ${r.selected.fields.join(', ')}` +
+      (r.selected.colors.length ? `. Its colour fields are: ${r.selected.colors.map((c) => c.name).join(', ')}` : '');
   }
   return r;
 }
@@ -338,7 +418,7 @@ function wire() {
   onChange('#vmixUrl', (e) => { queue({ vmix: { url: e.target.value } }, 0); setTimeout(() => loadVmix().catch(() => {}), 400); });
   onChange('#vmixInput', (e) => { queue({ vmix: { input: e.target.value } }, 0); setTimeout(() => loadVmix().catch(() => {}), 400); });
   $('#vmixRefresh').addEventListener('click', () => loadVmix().catch(() => {}));
-  const fieldMap = { fHeader: 'header', fScoreA: 'scoreA', fScoreB: 'scoreB', fLabel: 'label', fValA: 'valA', fValB: 'valB' };
+  const fieldMap = { fHeader: 'header', fScoreA: 'scoreA', fScoreB: 'scoreB', fLabel: 'label', fValA: 'valA', fValB: 'valB', fBoxA: 'boxA', fBoxB: 'boxB' };
   for (const [id, k] of Object.entries(fieldMap)) {
     onChange('#' + id, (e) => { queue({ fields: { [k]: e.target.value } }, 0); setTimeout(() => loadVmix().catch(() => {}), 400); });
   }
@@ -389,6 +469,7 @@ function wire() {
   fillSettings();
   buildRows();
   wire();
+  wireColors();
   await refresh();
   loadCatalog();
   if (!S.vmix.input) { $('#settingsBtn').click(); }

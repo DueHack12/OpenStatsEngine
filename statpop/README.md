@@ -29,7 +29,7 @@ network.
  Stats computer                 vMix computer
 ┌──────────────────┐          ┌───────────────────────────────┐
 │ OpenStatsEngine  │  Wi-Fi/  │ StatPop  ──SetText──▶  vMix   │
-│ :8080            │◀─LAN────▶│ :8090                 :8088   │
+│ :8080            │◀─LAN────▶│ :8700                 :8088   │
 └──────────────────┘          └───────────────────────────────┘
 ```
 
@@ -40,7 +40,7 @@ You only need the `statpop` folder on the vMix computer, plus **Node.js 18+**
 - **Mac:** double-click `start-mac.command`
 - **Anything:** `node server.js`
 
-Open <http://localhost:8090>. The **Network** address it prints also works from
+Open <http://localhost:8700>. The **Network** address it prints also works from
 a tablet or phone on the same network.
 
 Startup options (all optional; everything can also be set in Settings):
@@ -49,7 +49,8 @@ Startup options (all optional; everything can also be set in Settings):
 |---|---|
 | `--ose 192.168.1.50` | OSE computer's address (port 8080 is assumed if you leave it off) |
 | `--vmix localhost` | vMix address (port 8088 assumed) |
-| `--port 8090` | StatPop's own port |
+| `--port 8700` | StatPop's own port (default 8700; if it's taken, StatPop uses the next free one and says so) |
+| `--open` | Open the control page in a browser on start (the start scripts do this) |
 | `--data <folder>` | Where settings and presets are kept |
 
 On Windows you can put these on the end of the `node server.js` line in

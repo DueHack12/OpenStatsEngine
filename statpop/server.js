@@ -6,13 +6,14 @@
  * finds it in the live OSE game and pushes label + both teams' values into the
  * title with vMix's SetText API. No npm dependencies.
  *
- *   node server.js [--port 8090] [--ose 192.168.1.50:8080] [--vmix localhost:8088] [--data <folder>]
+ *   node server.js [--port 8700] [--ose 192.168.1.50:8080] [--vmix localhost:8088] [--data <folder>]
  */
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { spawn } from 'node:child_process';
 import { buildCatalog } from './lib/catalog.js';
 import { compose, defaultSettings, mergeSettings, cleanRow, fieldList } from './lib/compose.js';
 import { setText, vmixFunction, vmixState, findInput } from './lib/vmix.js';
@@ -20,7 +21,7 @@ import { setText, vmixFunction, vmixState, findInput } from './lib/vmix.js';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
 const arg = (name, dflt) => { const i = args.indexOf(name); return i >= 0 && args[i + 1] ? args[i + 1] : dflt; };
-const PORT = parseInt(arg('--port', process.env.STATPOP_PORT || '8090'), 10);
+const PORT = parseInt(arg('--port', process.env.STATPOP_PORT || '8700'), 10);
 const DATA = path.resolve(arg('--data', process.env.STATPOP_DATA || path.join(HERE, 'data')));
 const FILE = path.join(DATA, 'statpop.json');
 const PUBLIC = path.join(HERE, 'public');
@@ -328,7 +329,10 @@ const server = http.createServer(async (req, res) => {
 });
 
 function listen(port, tries = 0) {
-  server.once('error', (err) => {
+  // One-shot handlers per attempt, so a failed attempt's "listening" callback
+  // can't fire later with the wrong port.
+  const onError = (err) => {
+    server.off('listening', onListening);
     if (err.code === 'EADDRINUSE' && tries < 10) {
       const next = port + 1 === 8088 || port + 1 === 8099 ? port + 2 : port + 1;
       console.log(`  Port ${port} is busy, trying ${next}…`);
@@ -336,8 +340,9 @@ function listen(port, tries = 0) {
     }
     console.error(err.message);
     process.exit(1);
-  });
-  server.listen(port, '0.0.0.0', () => {
+  };
+  const onListening = () => {
+    server.off('error', onError);
     const ips = Object.values(os.networkInterfaces()).flat()
       .filter((i) => i && i.family === 'IPv4' && !i.internal).map((i) => i.address);
     console.log('\n  StatPop — OpenStatsEngine → vMix stat graphics');
@@ -346,6 +351,18 @@ function listen(port, tries = 0) {
     console.log(`  Data        : ${FILE}`);
     console.log(`  OSE         : ${settings.ose.url}`);
     console.log(`  vMix        : ${settings.vmix.url}\n`);
-  });
+    if (args.includes('--open')) openBrowser(`http://localhost:${port}`);
+  };
+  server.once('error', onError);
+  server.once('listening', onListening);
+  server.listen(port, '0.0.0.0');
 }
+
+/** Open the control page on the port we actually got (it may have moved). */
+function openBrowser(url) {
+  const [cmd, a] = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
+    : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]];
+  try { spawn(cmd, a, { stdio: 'ignore', detached: true }).on('error', () => {}).unref(); } catch { /* no browser */ }
+}
+
 listen(PORT);

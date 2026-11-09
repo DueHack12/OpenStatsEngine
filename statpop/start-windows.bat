@@ -20,6 +20,5 @@ if %NODEMAJOR% LSS 18 (
   exit /b 1
 )
 
-start "" http://localhost:8090
-node server.js %*
+node server.js --open %*
 pause

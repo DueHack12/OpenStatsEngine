@@ -17,27 +17,61 @@ numbers into the title through vMix's API. Nothing to bind in Data Sources.
 └──────────────────────────────┘
 ```
 
-Like OSE it has **no npm dependencies**. You need **Node.js 18+**.
+Like OSE it has **no npm dependencies**.
 
 ## Start
 
-On the vMix machine, with OpenStatsEngine running:
+StatPop runs on **its own computer**, normally the vMix machine. OSE stays on
+whichever computer the stats operator uses. They only need to be on the same
+network.
+
+```
+ Stats computer                 vMix computer
+┌──────────────────┐          ┌───────────────────────────────┐
+│ OpenStatsEngine  │  Wi-Fi/  │ StatPop  ──SetText──▶  vMix   │
+│ :8080            │◀─LAN────▶│ :8090                 :8088   │
+└──────────────────┘          └───────────────────────────────┘
+```
+
+You only need the `statpop` folder on the vMix computer, plus **Node.js 18+**
+(<https://nodejs.org>, LTS). OSE doesn't need to be installed there.
 
 - **Windows:** double-click `start-windows.bat`
 - **Mac:** double-click `start-mac.command`
-- **Anything:** `node server.js` (options: `--port 8090`, `--data <folder>`)
+- **Anything:** `node server.js`
 
-Open <http://localhost:8090>. The **Network** address it prints works from a
-tablet or phone on the same Wi-Fi.
+Open <http://localhost:8090>. The **Network** address it prints also works from
+a tablet or phone on the same network.
 
-Ports: StatPop 8090 · OSE 8080 · vMix 8088. They don't clash.
+Startup options (all optional; everything can also be set in Settings):
+
+| Option | |
+|---|---|
+| `--ose 192.168.1.50` | OSE computer's address (port 8080 is assumed if you leave it off) |
+| `--vmix localhost` | vMix address (port 8088 assumed) |
+| `--port 8090` | StatPop's own port |
+| `--data <folder>` | Where settings and presets are kept |
+
+On Windows you can put these on the end of the `node server.js` line in
+`start-windows.bat`.
 
 ## First-time setup (Settings)
 
-1. **OpenStatsEngine address:** `http://localhost:8080` if OSE is on the same PC.
-   Leave **Game** on *Follow the active game*.
-2. **vMix address:** `http://localhost:8088`. vMix's Web Controller must be on:
-   vMix → Settings → Web Controller → **Enable**.
+1. **OpenStatsEngine address:** the stats computer's **Network** address, the
+   one OSE prints when it starts (e.g. `192.168.1.50:8080`). Just the IP works
+   too. Leave **Game** on *Follow the active game*. If it says it can't reach
+   OSE, check:
+   - On the OSE computer, Windows Firewall must allow OSE on **Private
+     networks**. That's the prompt on OSE's first launch; if you missed it,
+     go to Windows Security → Firewall → Allow an app.
+   - Both computers are on the same network, and that network is set to
+     Private, not Public, in Windows.
+   - The OSE computer's IP hasn't changed. A DHCP reservation in the router
+     keeps it fixed.
+2. **vMix address:** `localhost:8088` when StatPop is on the vMix computer.
+   vMix's Web Controller must be on: vMix → Settings → Web Controller →
+   **Enable**. If StatPop runs on a third computer, use the vMix computer's IP
+   here instead.
 3. **Title input:** pick your GT title (e.g. `stats pop 1.gtzip`). StatPop reads
    its field names and warns you if any it plans to write don't exist.
 4. **Title field names** default to the comparison graphic:
@@ -68,8 +102,9 @@ flips it.
 - The header accepts `{A}` `{B}` (abbreviations), `{ANAME}` `{BNAME}`,
   `{AMASCOT}` `{BMASCOT}` and `{PERIOD}`.
 
-If OSE drops out, StatPop keeps the last numbers it had instead of blanking the
-graphic, and says so above the preview.
+If OSE drops out (Wi-Fi blip, laptop asleep), StatPop keeps the last numbers it
+had instead of blanking the graphic, says so above the preview, and picks up
+again as soon as OSE answers.
 
 ## What it can find
 

@@ -6,7 +6,7 @@
  * finds it in the live OSE game and pushes label + both teams' values into the
  * title with vMix's SetText API. No npm dependencies.
  *
- *   node server.js [--port 8090] [--data <folder>]
+ *   node server.js [--port 8090] [--ose 192.168.1.50:8080] [--vmix localhost:8088] [--data <folder>]
  */
 import http from 'node:http';
 import fs from 'node:fs';
@@ -35,6 +35,12 @@ try {
   settings.presets = saved.presets && typeof saved.presets === 'object' ? saved.presets : {};
   settings.live = false; // never go live on air by surprise after a restart
 } catch { /* first run */ }
+// --ose / --vmix (or STATPOP_OSE / STATPOP_VMIX) set the addresses from a shortcut
+const oseArg = arg('--ose', process.env.STATPOP_OSE);
+const vmixArg = arg('--vmix', process.env.STATPOP_VMIX);
+if (oseArg || vmixArg) {
+  settings = mergeSettings(settings, { ...(oseArg && { ose: { url: oseArg } }), ...(vmixArg && { vmix: { url: vmixArg } }) });
+}
 
 function save() {
   fs.writeFileSync(FILE + '.tmp', JSON.stringify(settings, null, 2));

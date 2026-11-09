@@ -39,6 +39,9 @@ async function flush() {
   pending = {};
   try {
     S = await api('/api/settings', { method: 'PUT', body });
+    // show the tidied address ("192.168.1.50" -> "http://192.168.1.50:8080")
+    if (document.activeElement !== $('#oseUrl')) $('#oseUrl').value = S.ose.url;
+    if (document.activeElement !== $('#vmixUrl')) $('#vmixUrl').value = S.vmix.url;
     await refresh();
   } catch (e) { toast('Could not save: ' + e.message, 'bad'); }
 }

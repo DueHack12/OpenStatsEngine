@@ -52,7 +52,26 @@ export function mergeSettings(cur, patch = {}) {
   if ('intervalMs' in patch) out.intervalMs = clamp(parseInt(patch.intervalMs, 10) || 2000, 500, 30000);
   if (Array.isArray(patch.rows)) out.rows = patch.rows.slice(0, MAX_ROWS).map(cleanRow);
   for (const k of ['ose', 'vmix']) for (const f of Object.keys(out[k])) out[k][f] = String(out[k][f] ?? '').trim();
+  out.ose.url = normalizeUrl(out.ose.url, 8080);
+  out.vmix.url = normalizeUrl(out.vmix.url, 8088);
   return out;
+}
+
+/**
+ * Accept what people actually type for another computer: "192.168.1.50",
+ * "192.168.1.50:8080", "ose-laptop", "http://192.168.1.50:8080/" all work.
+ */
+export function normalizeUrl(raw, defaultPort) {
+  let s = String(raw || '').trim().replace(/\/+$/, '');
+  if (!s) return `http://localhost:${defaultPort}`;
+  if (!/^https?:\/\//i.test(s)) s = 'http://' + s;
+  try {
+    const u = new URL(s);
+    if (!u.port && u.protocol === 'http:') u.port = String(defaultPort);
+    return `${u.protocol}//${u.host}`;
+  } catch {
+    return s;
+  }
 }
 
 function pick(o, keys) { const r = {}; for (const k of keys) if (k in o) r[k] = o[k]; return r; }

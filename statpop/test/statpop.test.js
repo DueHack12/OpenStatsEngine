@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { buildCatalog, search, tokens } from '../lib/catalog.js';
-import { compose, defaultSettings, mergeSettings } from '../lib/compose.js';
+import { compose, defaultSettings, mergeSettings, normalizeUrl } from '../lib/compose.js';
 import { parseState, findInput } from '../lib/vmix.js';
 
 const read = (f) => JSON.parse(fs.readFileSync(new URL(`./fixtures/${f}`, import.meta.url)));
@@ -78,6 +78,12 @@ t('works without OSE (manual values still go out)', () => {
   const s = compose(base, null, null);
   assert.equal(s.rows[3].valA, '7');
   assert.equal(s.rows[0].valA, '');
+});
+
+t('OSE on another computer: bare IP gets http:// and port 8080', () => {
+  assert.equal(normalizeUrl('192.168.1.50', 8080), 'http://192.168.1.50:8080');
+  assert.equal(normalizeUrl('ose-laptop:9000/', 8080), 'http://ose-laptop:9000');
+  assert.equal(mergeSettings(defaultSettings(), { ose: { url: '10.0.0.7' } }).ose.url, 'http://10.0.0.7:8080');
 });
 
 console.log('\n== vMix XML ==');
